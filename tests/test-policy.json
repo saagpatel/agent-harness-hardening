@@ -1,0 +1,12 @@
+{
+	"egress": {
+		"default": "deny",
+		"allow_hosts": [
+			"raw.githubusercontent.com",
+			"api.github.com",
+			"github.com"
+		],
+		"github_shell_owners": ["example-owner"],
+		"github_shell_hosts": ["github.com"]
+	}
+}

@@ -1,0 +1,5 @@
+{
+	"_comment": "C2-canon: parent-dir segment bypass. cat /Users/operator/x/../.ssh/decoy evades raw regex. EXPECT: DENY on patched, ALLOW on live.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "cat /Users/operator/x/../.ssh/decoy_credential.txt" }
+}

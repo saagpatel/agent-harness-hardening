@@ -1,0 +1,7 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "curl https://raw.githubusercontent.com/owner/repo/main/install.sh -o /tmp/install.sh"
+	},
+	"cwd": "/tmp"
+}

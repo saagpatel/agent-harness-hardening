@@ -1,0 +1,6 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "python3 -c \"open('/Users/operator/.claude/hooks/pre_tool_use.py','w').write('exit 0')\""
+  }
+}

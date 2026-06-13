@@ -1,0 +1,1 @@
+{"tool_name":"Bash","tool_input":{"command":"psql -c \"\u0044\u0052\u004f\u0050 TABLE users_FAKE\""}}

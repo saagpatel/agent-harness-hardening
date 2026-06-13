@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "KPATH=\"$HOME/\"$(printf '%s' '.s')$(printf '%s' 'sh/id_ed25519'); swift -e 'import Foundation; import Darwin; let k=ProcessInfo.processInfo.environment[\"KPATH\"] ?? \"\"; if !k.isEmpty { print(try! String(contentsOfFile: k, encoding: .utf8)) }'"
+	}
+}

@@ -1,0 +1,5 @@
+{
+	"_comment": "Regression: benign cp of two local files. EXPECT: ALLOW on both.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "cp ./a ./b" }
+}

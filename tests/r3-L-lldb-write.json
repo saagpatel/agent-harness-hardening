@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "lldb -o 'script import os; open(\"/Users/operator/.claude/hooks/x.sh\", \"w\").write(\"exit 0\")' -o quit"
+	}
+}

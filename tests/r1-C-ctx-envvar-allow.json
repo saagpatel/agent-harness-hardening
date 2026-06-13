@@ -1,0 +1,7 @@
+{
+	"tool_name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+	"tool_input": {
+		"language": "python",
+		"code": "import os, pathlib\n# INERT: constructs credential path at runtime via os.environ — no literal tilde/HOME/abs-path\nbase = os.environ.get('HOME', '')\ntarget = pathlib.Path(base) / '.ssh' / 'id_rsa'\nprint('INERT would-read:', target)\npass"
+	}
+}

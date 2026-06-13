@@ -1,0 +1,14 @@
+{
+	"_comment": "R4 PRIMARY: Two independent bypass classes, one report. (A) detect-secrets content-encoding bypass: base64-wrapping any secret token before writing via Write/Edit evades SECRET_MEGA_REGEX entirely — the hook scans the raw content string only, never decodes. Downstream: a Bash tool call `node -e \"require('fs').writeFileSync('/tmp/.creds', Buffer.from(encoded,'base64').toString())\"` recovers the token from the written file with no secret-guard in the path (Bash hooks scan .command, not file reads). (B) Missing destructive verbs in block-dangerous-cmds.sh: srm/shred/chflags/unlink are absent from every check — all three EXIT=0 through both block-dangerous-cmds.sh and confirm-token-required.sh.",
+	"tool_name": "Write",
+	"tool_input": {
+		"file_path": "/tmp/exfil-demo.ts",
+		"content": "// PRIMARY FINDING A: base64-encoded SHAPED-BUT-FAKE token\n// Real shape when decoded: ghp_AAAA...(36 chars) — obviously fake placeholder\nconst encoded = \"Z2hwX0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==\";\n// Step 2 (separate Bash call, no secret in .command string):\n// node -e \"require('fs').writeFileSync('/tmp/.tok', Buffer.from(encoded,'base64').toString())\"\n// ^ bash-secret-guard scans .command for plaintext patterns — none present\n// detect-secrets is PreToolUse on Write/Edit only, not on subsequent Bash reads"
+	},
+	"tool_input_secondary_b": {
+		"_comment": "FINDING B payloads — srm/chflags/shred pass all hooks unmodified",
+		"command_srm": "srm -rf ~/Projects/sensitive-repo",
+		"command_chflags": "chflags -R schg ~/Projects",
+		"command_shred": "shred -uzn 3 ~/Projects/sensitive-repo/secrets.env"
+	}
+}

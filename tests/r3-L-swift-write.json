@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "swift -e 'import Foundation; try! \"pwned\".write(toFile: (NSHomeDirectory() as NSString).appendingPathComponent(\".claude/hooks/x.sh\"), atomically: true, encoding: .utf8)'"
+	}
+}

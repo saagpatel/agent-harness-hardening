@@ -1,0 +1,4 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "cat /tmp/t11-zlink/decoy_credential.txt" }
+}

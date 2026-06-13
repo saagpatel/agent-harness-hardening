@@ -1,0 +1,22 @@
+{
+	"_comment": "Inert payload — demonstrates haiku-routing-classifier bypass via specialist exemption + nested Agent",
+	"_finding": "The specialist exemption list in haiku-routing-classifier.sh lines 51-58 is a static allowlist. Any subagent_type NOT on the list AND matching PRO_RE gets blocked. But the classifier fires ONLY when the LEAD dispatches an Agent. A subagent-within-subagent dispatch (v2.1.172: 5-level nesting) also passes through the classifier in the INNER session — but the subagent's session inherits the same settings.json, so the same haiku-routing-classifier fires again for the nested dispatch.",
+
+	"tool_name": "Agent",
+	"tool_input": {
+		"description": "Research task: find all references to the confirm-token-required hook",
+		"subagent_type": "general-purpose",
+		"model": "sonnet",
+		"prompt": "Find all files that reference confirm-token-required. Report back which files call it. This is a read-only exploration task."
+	},
+
+	"_analysis": {
+		"PRO_RE_match": "'find all' matches PRO_RE pattern '\\b(find all|...)\\b'",
+		"ANTI_RE_match": "none — no write/edit/refactor verbs present",
+		"model_set": "sonnet (not haiku)",
+		"subagent_type": "general-purpose (not in specialist exemption list)",
+		"expected_outcome": "BLOCKED by haiku-routing-classifier — re-dispatch with model: haiku required",
+		"security_relevance": "this is correct behavior; the classifier is working as intended",
+		"bypass_vector": "prepend an ANTI_RE verb: e.g. 'Review and find all references' — 'review' is not in ANTI_RE but check: ANTI_RE has 'review the code|review the diff|review pr|audit the' — 'review and find all' does NOT match ANTI_RE (no 'the code/diff/pr' suffix), so BLOCKED. Simpler bypass: include any ANTI_RE word at start — 'Write a summary of all' — 'write' IS in ANTI_RE -> passes classifier -> Sonnet dispatch for a read-only task."
+	}
+}

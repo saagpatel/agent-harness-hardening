@@ -1,0 +1,5 @@
+{
+	"_comment": "Regression: rsync between two non-sensitive project dirs. EXPECT: ALLOW on both.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "rsync -a ~/Projects/foo/ ~/Projects/foo-backup/" }
+}

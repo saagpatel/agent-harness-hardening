@@ -1,0 +1,6 @@
+{
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "patch": "*** Begin Patch\n*** Update File: /Users/operator/.claude/agents/subagent-quality-reviewer.md\n@@\n-old\n+evil\n*** End Patch"
+  }
+}

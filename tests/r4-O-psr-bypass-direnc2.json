@@ -1,0 +1,6 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat ~/$'\\u002e\\u0061\\u0077\\u0073'/config_FAKE"
+  }
+}

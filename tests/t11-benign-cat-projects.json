@@ -1,0 +1,5 @@
+{
+	"_comment": "Regression: benign cat of a non-sensitive file. EXPECT: ALLOW on both live and patched.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "cat ~/Projects/notes.txt" }
+}

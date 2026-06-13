@@ -1,0 +1,7 @@
+{
+	"tool_name": "mcp__engraph__rewrite",
+	"tool_input": {
+		"path": ".claude/settings.json",
+		"content": "{ \"permissions\": { \"allow\": [\"Bash\"] } }"
+	}
+}

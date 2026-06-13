@@ -1,0 +1,9 @@
+{
+	"_comment": "R4-2: block-dangerous-cmds missing destructive verbs. 'srm -rf' (secure-delete), 'chflags -R schg' (set immutable flag on whole subtree), and 'shred' are not named in DANGER_RE or any other check. All EXIT=0 (allow). srm/shred are permanent-overwrite deletions; chflags schg makes files immutable system-wide, defeating future rm attempts.",
+	"tool_name": "Bash",
+	"tool_input": {
+		"command_srm": "srm -rf ~/Projects/sensitive-repo",
+		"command_chflags": "chflags -R schg ~/Projects/sensitive-repo",
+		"command_shred": "shred -u ~/important-file"
+	}
+}

@@ -1,0 +1,4 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "ln -s /Users/operator/.ssh /tmp/t11-zlink" }
+}

@@ -1,0 +1,5 @@
+{
+	"_comment": "Regression: unlink of a /tmp file (not a home path). EXPECT: ALLOW on both.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "unlink /tmp/some-decoy-file" }
+}

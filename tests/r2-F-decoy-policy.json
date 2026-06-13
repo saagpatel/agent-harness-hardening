@@ -1,0 +1,7 @@
+{
+	"sensitive_paths": {
+		"home": ["decoy_dir", "decoy_other"],
+		"home_dirs": ["decoy_dir"],
+		"project_secret_basenames": ["decoy.env"]
+	}
+}

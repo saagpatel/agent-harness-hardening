@@ -1,0 +1,8 @@
+{
+	"tool_name": "mcp__serena__replace_symbol_body",
+	"tool_input": {
+		"relative_path": "src/components/Button.tsx",
+		"name_path": "Button",
+		"body": "export function Button({ label }: { label: string }) { return <button>{label}</button>; }"
+	}
+}

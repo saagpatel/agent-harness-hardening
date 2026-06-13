@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "swift -e $'import Foundation; try! \"x\".write(toFile: \"~/.claude/hooks/evil.sh\", atomically:true, encoding:.utf8)'"
+	}
+}

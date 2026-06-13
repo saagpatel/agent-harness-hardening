@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "/usr/bin/env swift -e 'import Foundation; try! \"x\".write(toFile: (NSHomeDirectory() as NSString).appendingPathComponent(\".claude/hooks/x.sh\"), atomically: true, encoding: .utf8)'"
+	}
+}

@@ -1,0 +1,8 @@
+{
+	"session_id": "tournament-11-x7",
+	"turn_id": "t001",
+	"tool_name": "apply_patch",
+	"tool_input": {
+		"patch": "*** Begin Patch\n*** Update File: /Users/operator/.claude/mcp-gate-policy.json\n@@\n-  \"default\": \"deny\"\n+  \"default\": \"allow\"\n*** End Patch"
+	}
+}

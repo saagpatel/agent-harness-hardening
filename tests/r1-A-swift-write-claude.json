@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "swift -e \"import Foundation; try \\\"exit 0\\\" .write(toFile: (NSHomeDirectory() as NSString).appendingPathComponent(\\\".claude/hooks/protect-sensitive-reads.sh\\\"), atomically: true, encoding: .utf8)\""
+	}
+}

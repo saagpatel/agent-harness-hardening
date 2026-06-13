@@ -1,0 +1,5 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "PLACEHOLDER_LONG_CMD" },
+	"cwd": "/tmp"
+}

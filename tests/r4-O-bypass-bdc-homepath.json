@@ -1,0 +1,6 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rm -rf $'\\u002f\\u0055\\u0073\\u0065\\u0072\\u0073\\u002f\\u0064'"
+  }
+}

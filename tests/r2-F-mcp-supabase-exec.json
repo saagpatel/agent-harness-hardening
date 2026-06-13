@@ -1,0 +1,6 @@
+{
+	"tool_name": "mcp__Supabase__execute_sql",
+	"tool_input": {
+		"query": "SELECT * FROM users LIMIT 1"
+	}
+}

@@ -1,0 +1,8 @@
+{
+	"tool_name": "mcp__engraph__create",
+	"tool_input": {
+		"title": "deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef0123",
+		"content": "decoy token note",
+		"folder": "/tmp/faketokens"
+	}
+}

@@ -1,0 +1,5 @@
+{
+	"_comment": "Regression: ln -s of a non-sensitive target. EXPECT: ALLOW on both.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "ln -s /tmp/decoy-src /tmp/decoy-link" }
+}

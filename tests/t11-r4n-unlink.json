@@ -1,0 +1,5 @@
+{
+	"_comment": "R4-N: unlink targeting shallow home path. EXPECT: DENY on patched, ALLOW on live.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "unlink ~/important-file-decoy" }
+}

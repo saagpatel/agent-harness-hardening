@@ -1,0 +1,5 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "echo hello > /dev/tcp/localhost/8080" },
+	"cwd": "/tmp"
+}

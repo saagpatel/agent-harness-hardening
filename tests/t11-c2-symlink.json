@@ -1,0 +1,5 @@
+{
+	"_comment": "C2-symlink: ln -s targeting a sensitive dir. ln -s ~/.ssh /tmp/t11-link. EXPECT: DENY on patched, ALLOW on live.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "ln -s ~/.ssh /tmp/t11-zlink-decoy" }
+}

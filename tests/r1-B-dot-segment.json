@@ -1,0 +1,4 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "cat /Users/operator/./.ssh/decoy_credential.txt" }
+}

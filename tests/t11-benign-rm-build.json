@@ -1,0 +1,5 @@
+{
+	"_comment": "Regression: rm -rf of a deep build directory. EXPECT: ALLOW on both.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "rm -rf ~/Projects/foo/build" }
+}

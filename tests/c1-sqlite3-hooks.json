@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "sqlite3 ~/.claude/hooks/guard.db \"CREATE TABLE x (a TEXT)\""
+	}
+}

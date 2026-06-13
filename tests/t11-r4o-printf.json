@@ -1,0 +1,5 @@
+{
+	"_comment": "R4-O: $(printf ...) obfuscation to encode a path. EXPECT: DENY on patched, ALLOW on live.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "cat $(printf '%s' '/tmp/decoy-r4o')" }
+}

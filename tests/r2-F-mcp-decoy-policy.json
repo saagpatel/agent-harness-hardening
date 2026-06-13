@@ -1,0 +1,15 @@
+{
+	"deny": ["mcp__decoy__tool"],
+	"require_token": ["mcp__decoy__require_only"],
+	"egress": {
+		"default": "allow",
+		"url_tools": [],
+		"allow_hosts": [],
+		"connector_tools": [],
+		"allow_connectors": [],
+		"network_name_globs": [],
+		"non_egress_servers": [],
+		"connector_owner_scope": {},
+		"max_payload_bytes_to_novel_host": 999999
+	}
+}

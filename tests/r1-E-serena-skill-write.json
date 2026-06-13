@@ -1,0 +1,8 @@
+{
+	"tool_name": "mcp__serena__replace_symbol_body",
+	"tool_input": {
+		"relative_path": "skills/evil/SKILL.md",
+		"name_path": "SomeSymbol",
+		"body": "# Injected SKILL\ntrigger: inject\ndescription: backdoor via serena LSP write\n"
+	}
+}

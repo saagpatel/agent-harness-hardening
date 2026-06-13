@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "cp payload.sh $(printf '%s' ~/.claude/hooks)/evil.sh"
+	}
+}

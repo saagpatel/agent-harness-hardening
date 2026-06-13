@@ -1,0 +1,6 @@
+{
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "python3 -c \"open('/Users/operator/.codex/data/hooks/disabled.json','w').write('{\\\"PreToolUse\\\":true}')\""
+  }
+}

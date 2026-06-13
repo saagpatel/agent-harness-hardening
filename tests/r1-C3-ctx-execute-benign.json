@@ -1,0 +1,7 @@
+{
+	"tool_name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+	"tool_input": {
+		"language": "python",
+		"code": "print('hello world')"
+	}
+}

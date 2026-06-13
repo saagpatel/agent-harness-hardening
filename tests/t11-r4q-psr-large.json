@@ -1,0 +1,5 @@
+{
+	"_comment": "R4-Q PSR: oversized input to protect-sensitive-reads.sh (>128KB). Generated dynamically in test via python padding. Placeholder — test script generates the actual payload.",
+	"tool_name": "Bash",
+	"tool_input": { "command": "PLACEHOLDER_PADDED_TO_128KB_PLUS" }
+}

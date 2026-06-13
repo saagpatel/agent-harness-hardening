@@ -1,0 +1,8 @@
+{
+	"tool_name": "mcp__serena__replace_symbol_body",
+	"tool_input": {
+		"relative_path": "src/utils.ts",
+		"name_path": "computeSum",
+		"body": "function computeSum(a: number, b: number): number { return a + b; }"
+	}
+}

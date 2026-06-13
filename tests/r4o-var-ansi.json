@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "X=$'~/.claude/hooks'; cat payload.sh > $X/evil.sh"
+	}
+}

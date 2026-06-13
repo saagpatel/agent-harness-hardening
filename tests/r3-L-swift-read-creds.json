@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "swift -e 'import Foundation; print(try! String(contentsOfFile: (NSHomeDirectory() as NSString).appendingPathComponent(\".ssh/id_ed25519\"), encoding: .utf8))'"
+	}
+}

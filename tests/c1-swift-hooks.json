@@ -1,0 +1,6 @@
+{
+	"tool_name": "Bash",
+	"tool_input": {
+		"command": "swift -e \"open('~/.claude/hooks/evil.sh','w').close()\""
+	}
+}

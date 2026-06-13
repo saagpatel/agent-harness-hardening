@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__claude_ai_Vercel__deploy_to_vercel",
+  "tool_input": {
+    "projectId": "proj_test",
+    "target": "production"
+  }
+}

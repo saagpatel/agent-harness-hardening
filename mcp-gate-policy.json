@@ -1,0 +1,158 @@
+{
+	"_comment": "MCP permission policy for mcp-guard.sh. Globs match against the full tool_name (e.g. mcp__claude_ai_Supabase__execute_sql). Default for any tool NOT listed = allow + PostToolUse logging. The always-on content sentinel (credential-path / known-secret / curl-@file exfil) runs on ALL mcp tools (hardened 2026-06-12 F4 — no longer name-gated).",
+	"deny": [],
+	"require_token": [
+		"mcp__*Supabase*__execute_sql",
+		"mcp__*Supabase*__apply_migration",
+		"mcp__*Supabase*__*delete*",
+		"mcp__*Supabase*__*drop*",
+		"mcp__*__browser_run_code_unsafe",
+		"mcp__*github*__*merge*",
+		"mcp__*github*__*push*",
+		"mcp__*github*__*delete*",
+		"mcp__asc-mcp__*submit*",
+		"mcp__asc-mcp__*release*",
+		"mcp__*Vercel*__*deploy*",
+		"mcp__*loudflare*__*",
+		"mcp__bridge-db__clear_handoff",
+		"mcp__bridge-db__mark_shipped_processed",
+
+		"_comment_C3_code_exec",
+		"mcp__*ctx_execute*",
+		"mcp__*ctx_execute_file*",
+
+		"_comment_C3b_destructive_writers",
+		"mcp__serena__replace_symbol_body",
+		"mcp__serena__rename_symbol",
+		"mcp__serena__safe_delete_symbol",
+		"mcp__engraph__delete",
+		"mcp__engraph__rewrite",
+		"mcp__engraph__move_note"
+	],
+	"_require_token_notes": {
+		"C3_code_exec": "C3 (HIGH) — ungated arbitrary code-exec tools. ctx_execute / ctx_execute_file run arbitrary Python/JS/shell code in a subprocess and can read files, exfiltrate env-vars, or pivot to the host FS. Token-gating means the operator must physically confirm within 60s before any code executes. Kept in non_egress_servers because they do NOT open a network socket themselves — the egress gate is about outbound destinations, not write-risk.",
+		"C3b_destructive_writers": "C3 (HIGH) — destructive LSP vault / symbol writers. These tools can overwrite symbol bodies, rename symbols project-wide, permanently delete them, or destroy/move Obsidian vault notes. All are irreversible without git history. Serena operates on any open project; engraph writes the live SecondBrain vault. Token gate ensures each destructive write has an explicit operator confirmation.",
+		"_comment_skipping": "The _comment_* strings in require_token are filtered by match_any() in mcp-guard.sh (case: _comment*) so they never match a real tool name and never cause false positives."
+	},
+	"_egress_comment": "Destination-aware egress control (Phase 1, Cross-Provider Egress Guard). default=deny applies ONLY to tools matching a network mode below; all other tools keep default-allow. Modes, checked in order: Mode 1 url_tools (host extracted from tool_input, must match allow_hosts), then non_egress_servers (localhost/fs-local — skip the gate), then Mode 2 connector_tools (allow iff full name matches an allow_connectors glob), then Mode 3 network_name_globs (fail-closed deny), then Mode 4 (hardened 2026-06-12 F5: unknown non-local tool carrying a scheme://host in its payload → fail-closed). Codex reads this same block live and fails closed. Hostnames + tool-name globs only; no secrets. See THREAT-MODEL-FREEZE.md.",
+	"egress": {
+		"default": "deny",
+		"max_payload_bytes_to_novel_host": 512,
+		"non_egress_servers": [
+			"bridge-db",
+			"serena",
+			"engraph",
+			"cost-tracker",
+			"portfolio-health",
+			"personal_ops",
+			"plugin_context-mode_context-mode"
+		],
+		"url_tools": [
+			"mcp__*browser_navigate*",
+			"mcp__*ctx_fetch_and_index*",
+			"mcp__*browser_run_code_unsafe*",
+			"mcp__*browser_evaluate*"
+		],
+		"allow_hosts": [
+			"github.com",
+			"api.github.com",
+			"codeload.github.com",
+			"raw.githubusercontent.com",
+			"objects.githubusercontent.com",
+			"avatars.githubusercontent.com",
+			"camo.githubusercontent.com",
+			"media.githubusercontent.com",
+			"user-images.githubusercontent.com",
+			"private-user-images.githubusercontent.com",
+			"gist.githubusercontent.com",
+			"api.vercel.com",
+			"vercel.com",
+			"api.cloudflare.com",
+			"dash.cloudflare.com",
+			"api.box.com",
+			"app.box.com",
+			"upload.box.com",
+			"dl.box.com",
+			"drive.google.com",
+			"docs.google.com",
+			"sheets.google.com",
+			"mail.google.com",
+			"calendar.google.com",
+			"accounts.google.com",
+			"app.slack.com",
+			"*.anthropic.com",
+			"claude.ai"
+		],
+		"connector_tools": ["mcp__codex_apps__*", "mcp__claude_ai_*"],
+		"allow_connectors": [
+			"mcp__claude_ai_Vercel*",
+			"mcp__claude_ai_Google_Drive*",
+			"mcp__claude_ai_Cloudflare*",
+			"mcp__claude_ai_Context7*",
+			"mcp__codex_apps__github*",
+			"mcp__codex_apps__box*",
+			"mcp__codex_apps__atlassian*",
+			"mcp__codex_apps__jira*",
+			"mcp__codex_apps__gmail*",
+			"mcp__codex_apps__drive*",
+			"mcp__codex_apps__slack*",
+			"mcp__codex_apps__vercel*",
+			"mcp__codex_apps__cloudflare*"
+		],
+		"network_name_globs": [
+			"mcp__*fetch*",
+			"mcp__*http*",
+			"mcp__*send*",
+			"mcp__*upload*",
+			"mcp__*webhook*"
+		],
+		"connector_owner_scope": {
+			"mcp__*github*": ["example-owner"]
+		},
+		"github_shell_owners": ["example-owner"],
+		"github_shell_hosts": ["github.com"]
+	},
+	"_sensitive_paths_comment": "Home-anchored credential paths + project-secret basenames denied to read-like commands on BOTH harnesses (CC protect-sensitive-reads.sh, Codex pre_tool_use_dispatch.py). Segment names only — no secrets. Both guards fall back to a built-in list if this block is missing (fail-safe, never fail-open). Read fresh per call; no restart.",
+	"sensitive_paths": {
+		"home": [
+			".ssh",
+			".aws",
+			".gnupg",
+			".config/op",
+			".config/gcloud",
+			".docker/config.json",
+			".kube",
+			".netrc",
+			".pypirc",
+			".npmrc",
+			".git-credentials",
+			".gem/credentials",
+			".anthropic",
+			".claude/.tokens",
+			".codex/auth.json",
+			".codex/.credentials.json"
+		],
+		"home_dirs": [
+			".ssh",
+			".aws",
+			".gnupg",
+			".config/op",
+			".config/gcloud",
+			".kube",
+			".claude/.tokens"
+		],
+		"project_secret_basenames": [
+			".env",
+			".pem",
+			".key",
+			"id_rsa",
+			"id_ed25519",
+			"id_ecdsa",
+			"id_dsa",
+			".npmrc",
+			".pypirc",
+			".netrc",
+			".git-credentials"
+		]
+	}
+}
