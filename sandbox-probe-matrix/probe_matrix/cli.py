@@ -48,7 +48,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true", dest="run_dry_run")
     commands.add_parser("report", help="delegate to optional reporter")
     parsed = parser.parse_args(args)
-    from probe_matrix.probes import core as _core  # noqa: F401 (registration)
+    from probe_matrix.probes import register_all
+
+    register_all()  # core probes + the three wings
 
     if parsed.list:
         for probe in all_probes():

@@ -28,9 +28,9 @@ def test_registry_and_dry_run_do_not_create_fixtures(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(runner.tempfile, "TemporaryDirectory", forbidden)
     probes = all_probes()
-    assert len(probes) == 30
-    assert len({probe.id for probe in probes}) == 30
-    assert {probe.category for probe in probes} == {
+    assert len(probes) >= 30
+    assert len({probe.id for probe in probes}) == len(probes)
+    assert {probe.category for probe in probes} >= {
         Category.FILES,
         Category.SOCKETS,
         Category.NETWORK,

@@ -12,7 +12,8 @@ from probe_matrix.spec import all_probes
 def test_list(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["run", "--list"]) == 0
     rows = capsys.readouterr().out.splitlines()
-    assert len(rows) == 30
+    assert len(rows) == len(all_probes())
+    assert len(rows) >= 30
     assert all(len(row.split("\t")) == 3 for row in rows)
 
 
