@@ -1,0 +1,21 @@
+name: sandbox-probe-matrix
+on:
+  push:
+    branches: [feat/probe-matrix]
+  pull_request:
+    paths: ["sandbox-probe-matrix/**", ".github/workflows/sandbox-probe-matrix.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sandbox-probe-matrix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.14"
+      - name: Tests
+        run: uv run --frozen pytest -q
+      - name: Type check
+        run: uv run --frozen pyright
