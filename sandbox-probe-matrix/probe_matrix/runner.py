@@ -64,8 +64,12 @@ class UnavailableAdapter:
         )
 
 
+class ProbeBudgetExceeded(Exception):
+    """The per-probe time budget elapsed: the result is inconclusive, not a denial."""
+
+
 def _expired(_signum: int, _frame: object) -> None:
-    raise TimeoutError("probe budget exceeded")
+    raise ProbeBudgetExceeded("probe budget exceeded")
 
 
 class ShellAdapter:
@@ -109,6 +113,11 @@ def _run(probes: list[Probe], ctx: ProbeContext, adapter: Adapter) -> list[Probe
                 )
             else:
                 result = adapter.run(probe, ctx)
+        except ProbeBudgetExceeded:
+            result = ProbeResult(
+                probe.id, probe.category, Verdict.ERROR,
+                "probe budget exceeded; inconclusive (not a demonstrated denial)",
+            )
         except OSError as exc:
             verdict, detail = os_failure(exc)
             result = ProbeResult(probe.id, probe.category, verdict, detail)

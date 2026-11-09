@@ -101,7 +101,23 @@ def _cells(grids: list[Grid]) -> dict[CellKey, Verdict]:
             for g in _clean(grids) for r in g['results']}
 
 
+def _fingerprints(grids: list[Grid]) -> dict[tuple[str, str], str]:
+    return {(_token(g['harness']), _token(g['mode'])): g['host_fingerprint'] for g in grids}
+
+
 def diff_against_baseline(grids: list[Grid], baseline: list[Grid]) -> DiffResult:
+    # A baseline is only comparable to a rerun from the SAME machine. Comparing a
+    # blocked baseline from machine A against an allowed run from machine B would
+    # otherwise be reported as a flipped_open sandbox regression, when it is only
+    # an environmental difference. Refuse a cross-host comparison for any shared
+    # harness/mode grid rather than emit a false finding.
+    cur_fp, base_fp = _fingerprints(grids), _fingerprints(baseline)
+    for cell_key in cur_fp.keys() & base_fp.keys():
+        if cur_fp[cell_key] != base_fp[cell_key]:
+            raise ValueError(
+                'cross-host baseline comparison refused: host fingerprints differ for '
+                f'harness/mode {cell_key}; compare a rerun from the same machine'
+            )
     current, previous = _cells(grids), _cells(baseline)
     cells: list[DiffCell] = []
     for key in sorted(current.keys() | previous.keys()):

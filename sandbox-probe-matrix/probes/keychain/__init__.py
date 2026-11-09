@@ -50,13 +50,14 @@ class KeychainReachProbe:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=10,
+                timeout=2.5,  # under the runner's 3s probe budget, so we self-terminate first
                 check=False,
             )
         except OSError:
             return result(Verdict.BLOCKED, "keychain wing: metadata access denied")
         except subprocess.TimeoutExpired:
-            return result(Verdict.BLOCKED, "keychain wing: metadata enumeration timed out")
+            # A timeout is inconclusive, not a demonstrated denial of access.
+            return result(Verdict.ERROR, "keychain wing: metadata enumeration timed out; inconclusive")
         if metadata.returncode != 0:
             return result(Verdict.BLOCKED, "keychain wing: metadata access denied")
 

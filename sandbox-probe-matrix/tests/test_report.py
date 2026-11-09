@@ -115,14 +115,31 @@ def test_shared_baseline_path_preserves_regression(tmp_path):
     assert any(c.classification in ("unchanged", "flipped_open") for c in diff.cells)
 
 
-def test_host_fingerprint_is_machine_specific(monkeypatch):
+def test_host_fingerprint_is_machine_specific(monkeypatch, tmp_path):
     """Two machines sharing an OS tuple must get different fingerprints."""
     import uuid
     from probe_matrix import spec
 
+    monkeypatch.setenv("SPM_SALT_DIR", str(tmp_path))  # one stable salt for both calls
     monkeypatch.setattr(uuid, "getnode", lambda: 0x111111111111)
     a = spec.host_fingerprint()
     monkeypatch.setattr(uuid, "getnode", lambda: 0x222222222222)
     b = spec.host_fingerprint()
     assert a != b
     assert len(a) == 12 and len(b) == 12
+
+
+def test_cross_host_baseline_comparison_is_refused():
+    """A baseline from one machine must not be diffed against another's run."""
+    import pytest
+    from probe_matrix import report
+
+    def grid(fp, verdict):
+        return {"schema": "spm/v1", "generated_at": 0.0, "harness": "shell", "mode": "default",
+                "host_fingerprint": fp,
+                "results": [{"probe_id": "files.x", "category": "files", "verdict": verdict,
+                             "detail": "", "harness": "shell", "mode": "default", "elapsed_ms": 1}]}
+    cur = [grid("aaaaaaaaaaaa", "allowed")]
+    base = [grid("bbbbbbbbbbbb", "blocked")]  # different machine
+    with pytest.raises(ValueError, match="cross-host"):
+        report.diff_against_baseline(cur, base)

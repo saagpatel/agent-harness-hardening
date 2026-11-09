@@ -73,7 +73,10 @@ def test_failures_do_not_echo_metadata_or_diagnostics(
 
     monkeypatch.setattr(keychain_wing.subprocess, "run", fake_run)
     result = keychain_wing.KeychainReachProbe().run(ProbeContext(extra={"keychain_enabled": "1"}))
-    assert result.verdict == Verdict.BLOCKED
+    # A timeout is inconclusive (ERROR); a denial/nonzero exit is BLOCKED. Either
+    # way, no planted metadata/diagnostic value may appear in the output.
+    expected = Verdict.ERROR if failure == "timeout" else Verdict.BLOCKED
+    assert result.verdict == expected
     print(json.dumps(result.to_json()))
     captured = capfd.readouterr()
     assert sentinel not in captured.out + captured.err + repr(result)
@@ -88,3 +91,22 @@ def test_non_macos_skips_without_subprocess(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(keychain_wing.subprocess, "run", forbidden)
     result = keychain_wing.KeychainReachProbe().run(ProbeContext(extra={"keychain_enabled": "1"}))
     assert result.verdict == Verdict.SKIPPED
+
+
+def test_keychain_timeout_through_shell_adapter_is_error(monkeypatch):
+    """A slow enumeration surfaced as ERROR (not a false BLOCKED) via the runner."""
+    from probe_matrix.runner import run_cell
+    from probe_matrix.spec import get_probe
+    import probes.keychain as kc
+
+    monkeypatch.setattr(kc.sys, "platform", "darwin")
+
+    def slow(args, **kwargs):
+        raise subprocess.TimeoutExpired(args, kwargs.get("timeout", 2.5))
+
+    monkeypatch.setattr(kc.subprocess, "run", slow)
+    probe = get_probe("keychain.metadata-reach")
+    assert probe is not None
+    results = run_cell("shell", "default", [probe], False, extra={"keychain_enabled": "1"})
+    assert results[0].verdict == Verdict.ERROR
+    assert "inconclusive" in results[0].detail

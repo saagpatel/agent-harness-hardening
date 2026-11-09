@@ -133,22 +133,52 @@ def clear_registry() -> None:
 
 # ---- helpers ------------------------------------------------------------------
 
+def _install_salt() -> bytes:
+    """A stable, per-install random secret, kept OUT of reports and the repo.
+
+    Folding this into the digest means a committed baseline fingerprint cannot be
+    brute-forced back to the machine's hardware id (the salt is unknown to anyone
+    reading the baseline). `SPM_SALT_DIR` overrides the location (used by tests).
+    If no salt file can be persisted, the function degrades to no salt rather than
+    failing — still non-reversible, just not brute-force-resistant.
+    """
+    import os
+    import pathlib
+
+    base = os.environ.get("SPM_SALT_DIR") or os.path.join(
+        os.path.expanduser("~"), ".cache", "sandbox-probe-matrix"
+    )
+    path = pathlib.Path(base) / "fingerprint-salt"
+    try:
+        if path.exists():
+            return path.read_bytes()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        salt = __import__("secrets").token_bytes(16)
+        path.write_bytes(salt)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+        return salt
+    except OSError:
+        return b""
+
+
 def host_fingerprint() -> str:
-    """A truncated, non-reversible id for the machine a run came from.
+    """A salted, truncated, non-reversible id for the machine a run came from.
 
     Includes a machine-specific component (the stable hardware node id) so two
-    different machines on the same OS/arch get *different* fingerprints — that is
-    the whole point: telling one machine's baseline from another's. The raw inputs
-    (which could identify the host) are never emitted; only the 12-hex digest is,
-    which is non-reversible. Safe to commit.
+    different machines on the same OS/arch get *different* fingerprints — the whole
+    point is telling one machine's baseline from another's. A stable per-install
+    secret salt (see `_install_salt`) is mixed in so the committed 12-hex digest
+    cannot be reversed or brute-forced back to the hardware id. The raw inputs are
+    never emitted; only the digest is. Safe to commit.
     """
     import platform
     import uuid
 
-    # uuid.getnode() is a stable per-machine hardware identifier; hashing it keeps
-    # the fingerprint distinct per machine without ever exposing the raw value.
     raw = f"{platform.system()}|{platform.machine()}|{platform.release()}|{uuid.getnode():x}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+    return hashlib.sha256(_install_salt() + b"|" + raw.encode()).hexdigest()[:12]
 
 
 def now_ms() -> int:

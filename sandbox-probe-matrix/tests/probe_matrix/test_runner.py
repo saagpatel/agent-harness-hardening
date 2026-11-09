@@ -95,7 +95,8 @@ def test_time_budget_restores_handler(tmp_path: Path, monkeypatch: pytest.Monkey
         return Verdict.ALLOWED, "unexpected"
 
     result = run_cell("shell", "default", [_probe(action)], False)[0]
-    assert result.verdict == Verdict.BLOCKED
+    # A blown time budget is inconclusive (ERROR), not a demonstrated denial.
+    assert result.verdict == Verdict.ERROR
     assert signal.getsignal(signal.SIGALRM) == previous
     assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
     assert not list(tmp_path.iterdir())
