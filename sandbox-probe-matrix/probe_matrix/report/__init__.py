@@ -37,6 +37,20 @@ def _token(value: Any) -> str:
     return value
 
 
+def _coerce_ts(value: Any) -> float:
+    """Accept either an epoch float/int or an ISO 8601 string (what the CLI emits)."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            from datetime import datetime
+
+            return datetime.fromisoformat(value).timestamp()
+    raise ValueError('invalid generated_at timestamp')
+
+
 def _clean(grids: list[Grid]) -> list[Grid]:
     """Validate grid identity and discard unneeded free-text details."""
     clean: list[Grid] = []
@@ -65,7 +79,7 @@ def _clean(grids: list[Grid]) -> list[Grid]:
                             'verdict': Verdict(result['verdict']).value, 'detail': '',
                             'harness': harness, 'mode': mode,
                             'elapsed_ms': int(result['elapsed_ms'])})
-        clean.append({'schema': SCHEMA, 'generated_at': float(grid['generated_at']),
+        clean.append({'schema': SCHEMA, 'generated_at': _coerce_ts(grid['generated_at']),
                       'harness': harness, 'mode': mode, 'host_fingerprint': fingerprint,
                       'results': results})
     return clean
@@ -170,3 +184,51 @@ def render_diff_html(diff: DiffResult) -> str:
               c.after.value if c.after else '-', c.classification), c.classification == 'flipped_open')
             for c in diff.cells]
     return _document(_html_table(('Probe', 'Harness', 'Mode', 'Before', 'After', 'Change'), rows))
+
+
+def _load_grids(paths: list[str]) -> list[Grid]:
+    grids: list[Grid] = []
+    for p in paths:
+        data = json.loads(Path(p).read_text(encoding='utf-8'))
+        grids.extend(data if isinstance(data, list) else [data])
+    return grids
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`spm report` entry point.
+
+    Render one or more run grids as a terminal table and/or HTML, optionally
+    saving a baseline or diffing against one (flipped-open cells shown red).
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(prog='spm report')
+    parser.add_argument('--grid', action='append', default=[], metavar='FILE',
+                        help='a run grid JSON (repeatable); omit to read one from stdin')
+    parser.add_argument('--baseline', metavar='FILE', help='baseline grid(s) to compare against')
+    parser.add_argument('--diff', action='store_true', help='show the diff vs the baseline')
+    parser.add_argument('--save-baseline', metavar='FILE', help='save the given grids as a baseline')
+    parser.add_argument('--html', metavar='FILE', help='also write a static HTML report here')
+    parsed = parser.parse_args(argv)
+
+    if parsed.grid:
+        grids = _load_grids(parsed.grid)
+    else:
+        grids = _load_grids(['/dev/stdin'])
+
+    if parsed.save_baseline:
+        save_baseline(grids, parsed.save_baseline)
+
+    if parsed.diff or parsed.baseline:
+        if not parsed.baseline:
+            print('--diff requires --baseline FILE', file=sys.stderr)
+            return 2
+        diff = diff_against_baseline(grids, load_baseline(parsed.baseline))
+        sys.stdout.write(render_diff_terminal(diff) + '\n')
+        if parsed.html:
+            Path(parsed.html).write_text(render_diff_html(diff), encoding='utf-8')
+    else:
+        sys.stdout.write(render_terminal(grids) + '\n')
+        if parsed.html:
+            Path(parsed.html).write_text(render_html(grids), encoding='utf-8')
+    return 0

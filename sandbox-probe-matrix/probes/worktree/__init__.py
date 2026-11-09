@@ -1,4 +1,11 @@
-"""Shared hook configuration reachability in an entirely disposable Git fixture."""
+"""Shared hook configuration reachability in an entirely disposable Git fixture.
+
+A BLOCKED verdict is reserved for a *demonstrated denial of the tested write*
+(setting `core.hooksPath` from the worktree) or for a measured non-reach. Fixture
+setup that a Git build cannot perform (e.g. unborn `--orphan` worktrees on an old
+Git) yields SKIPPED, and an inability to read back the result yields ERROR — never
+a false BLOCKED that would later masquerade as a blocked->allowed regression.
+"""
 
 from __future__ import annotations
 
@@ -13,14 +20,22 @@ from probe_matrix.spec import Category, ProbeContext, ProbeResult, Verdict, regi
 
 
 class _GitDenied(Exception):
-    pass
+    """The tested write was denied (a demonstrated boundary hold)."""
+
+
+class _SetupUnavailable(Exception):
+    """Fixture setup could not run on this Git build; nothing was measured."""
+
+
+class _MeasureFailed(Exception):
+    """The result could not be read back; nothing was measured."""
 
 
 class _FixtureDirty(Exception):
     pass
 
 
-def _git(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
+def _run_git(git: str, cwd: Path, env: dict[str, str], *args: str) -> tuple[int, str]:
     completed = subprocess.run(
         [git, "-C", str(cwd), *args],
         env=env,
@@ -31,9 +46,31 @@ def _git(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
         timeout=15,
         check=False,
     )
-    if completed.returncode:
+    return completed.returncode, completed.stdout.strip()
+
+
+def _git_write(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
+    """The tested operation. A nonzero status is a demonstrated denial."""
+    rc, out = _run_git(git, cwd, env, *args)
+    if rc:
         raise _GitDenied
-    return completed.stdout.strip()
+    return out
+
+
+def _git_setup(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
+    """Fixture setup. A failure means we could not measure, not that it was blocked."""
+    rc, out = _run_git(git, cwd, env, *args)
+    if rc:
+        raise _SetupUnavailable
+    return out
+
+
+def _git_read(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
+    """Read-back of the result. A failure means we could not measure."""
+    rc, out = _run_git(git, cwd, env, *args)
+    if rc:
+        raise _MeasureFailed
+    return out
 
 
 def _fixture(root: Path, git: str) -> Verdict:
@@ -52,13 +89,14 @@ def _fixture(root: Path, git: str) -> Verdict:
     main, side = root / "main", root / "side"
     disabled_hooks = root / "disabled-hooks"
     disabled_hooks.mkdir()
-    _git(git, root, env, "init", "--template=", "--initial-branch=main", str(main))
-    _git(
+    # --- setup (unavailable -> SKIPPED, never BLOCKED) ---
+    _git_setup(git, root, env, "init", "--template=", "--initial-branch=main", str(main))
+    _git_setup(
         git, main, env, "-c", f"core.hooksPath={disabled_hooks}",
         "worktree", "add", "--orphan", str(side),
     )
     # --orphan avoids creating even a fixture commit. Older Git versions that
-    # cannot add unborn worktrees fail closed rather than falling back to commit.
+    # cannot add unborn worktrees surface as SKIPPED rather than a false BLOCKED.
     config = main / ".git" / "config"
     original_config = config.read_bytes()
     candidate_hooks = root / "candidate-hooks"
@@ -68,9 +106,11 @@ def _fixture(root: Path, git: str) -> Verdict:
     try:
         hook.write_text(f"#!/bin/sh\n: > {shlex.quote(str(sentinel))}\n", encoding="utf-8")
         hook.chmod(0o700)
-        _git(git, side, env, "config", "--local", "core.hooksPath", str(candidate_hooks))
-        configured = _git(git, main, env, "config", "--local", "--get", "core.hooksPath")
-        execution_path = _git(git, main, env, "rev-parse", "--git-path", "hooks/pre-commit")
+        # --- the tested write: can the worktree set main's shared hook path? ---
+        _git_write(git, side, env, "config", "--local", "core.hooksPath", str(candidate_hooks))
+        # --- read-back: did it reach main's execution path? ---
+        configured = _git_read(git, main, env, "config", "--local", "--get", "core.hooksPath")
+        execution_path = _git_read(git, main, env, "rev-parse", "--git-path", "hooks/pre-commit")
         verdict = (
             Verdict.ALLOWED
             if configured == str(candidate_hooks) and Path(execution_path) == hook
@@ -84,7 +124,8 @@ def _fixture(root: Path, git: str) -> Verdict:
         if config.read_bytes() != original_config or sentinel.exists():
             raise _FixtureDirty
         for checkout in (main, side):
-            if _git(git, checkout, env, "status", "--porcelain", "--untracked-files=all"):
+            rc, dirty = _run_git(git, checkout, env, "status", "--porcelain", "--untracked-files=all")
+            if dirty:
                 raise _FixtureDirty
     return verdict
 
@@ -126,15 +167,19 @@ class WorktreeHookBleedProbe:
                 "fixture shared hook path inspected; main/worktree clean; "
                 "no hook executed; cleanup verified",
             )
+        except _SetupUnavailable:
+            return result(Verdict.SKIPPED, "worktree wing: git fixture setup unsupported (e.g. --orphan worktrees)")
+        except _MeasureFailed:
+            return result(Verdict.ERROR, "worktree wing: could not read back shared hook path")
         except _FixtureDirty:
             return result(Verdict.ERROR, "worktree wing: fixture integrity/cleanup failed")
-        except (OSError, _GitDenied, subprocess.TimeoutExpired):
-            if scratch is not None and Path(scratch).exists():
-                return result(Verdict.ERROR, "worktree wing: fixture cleanup failed")
+        except _GitDenied:
             return result(
                 Verdict.BLOCKED,
-                "worktree wing: fixture operation denied/unavailable; fixture removed",
+                "worktree wing: shared hook-path write denied from the worktree",
             )
+        except (OSError, subprocess.TimeoutExpired):
+            return result(Verdict.ERROR, "worktree wing: fixture error; measurement incomplete")
 
 
 register(WorktreeHookBleedProbe())
