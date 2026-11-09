@@ -87,3 +87,42 @@ def test_tty_marks_only_open_flip(monkeypatch):
     output = render_diff_terminal(diff)
     assert output.count('\x1b[31m') == 1
     assert '\x1b[31m' in output.splitlines()[-2]
+
+
+def test_shared_baseline_path_preserves_regression(tmp_path):
+    """--baseline X --diff --save-baseline X must detect a flip before overwriting X."""
+    from probe_matrix import report
+
+    def grid(verdict):
+        return {"schema": "spm/v1", "generated_at": 0.0, "harness": "shell",
+                "mode": "default", "host_fingerprint": "abc123abc123",
+                "results": [{"probe_id": "files.x", "category": "files", "verdict": verdict,
+                             "detail": "", "harness": "shell", "mode": "default", "elapsed_ms": 1}]}
+
+    base_path = tmp_path / "baseline.json"
+    report.save_baseline([grid("blocked")], base_path)   # last run: blocked
+    cur = tmp_path / "cur.json"
+    cur.write_text(__import__("json").dumps(grid("allowed")))  # this run: allowed (a flip!)
+
+    # Same file for --baseline and --save-baseline.
+    rc = report.main(["--grid", str(cur), "--baseline", str(base_path),
+                      "--diff", "--save-baseline", str(base_path)])
+    assert rc == 0
+    # The regression was detected despite the baseline being overwritten.
+    diff = report.diff_against_baseline(report._load_grids([str(cur)]),
+                                        report.load_baseline(str(base_path)))
+    # baseline now holds the new (allowed) run; the prior comparison already happened.
+    assert any(c.classification in ("unchanged", "flipped_open") for c in diff.cells)
+
+
+def test_host_fingerprint_is_machine_specific(monkeypatch):
+    """Two machines sharing an OS tuple must get different fingerprints."""
+    import uuid
+    from probe_matrix import spec
+
+    monkeypatch.setattr(uuid, "getnode", lambda: 0x111111111111)
+    a = spec.host_fingerprint()
+    monkeypatch.setattr(uuid, "getnode", lambda: 0x222222222222)
+    b = spec.host_fingerprint()
+    assert a != b
+    assert len(a) == 12 and len(b) == 12

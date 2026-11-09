@@ -216,14 +216,21 @@ def main(argv: list[str] | None = None) -> int:
     else:
         grids = _load_grids(['/dev/stdin'])
 
-    if parsed.save_baseline:
-        save_baseline(grids, parsed.save_baseline)
-
+    # Load the comparison baseline BEFORE saving, so --baseline and --save-baseline
+    # may name the same file without the new run clobbering the old one first
+    # (which would hide a blocked->allowed regression).
+    previous = None
     if parsed.diff or parsed.baseline:
         if not parsed.baseline:
             print('--diff requires --baseline FILE', file=sys.stderr)
             return 2
-        diff = diff_against_baseline(grids, load_baseline(parsed.baseline))
+        previous = load_baseline(parsed.baseline)
+
+    if parsed.save_baseline:
+        save_baseline(grids, parsed.save_baseline)
+
+    if previous is not None:
+        diff = diff_against_baseline(grids, previous)
         sys.stdout.write(render_diff_terminal(diff) + '\n')
         if parsed.html:
             Path(parsed.html).write_text(render_diff_html(diff), encoding='utf-8')

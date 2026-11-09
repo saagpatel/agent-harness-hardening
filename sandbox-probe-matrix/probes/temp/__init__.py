@@ -19,6 +19,10 @@ class _CleanupFailed(Exception):
     pass
 
 
+class _SetupFailed(Exception):
+    """Creating/writing the writer marker failed: nothing was measured."""
+
+
 def _read_marker(reader_root: Path, marker: Path) -> bytes:
     # Resolve the writer's marker starting from the reader's namespace. No chdir
     # changes the runner's process state, and no existing temp files are scanned.
@@ -29,18 +33,22 @@ def _read_marker(reader_root: Path, marker: Path) -> bytes:
 def _check_roots(writer_root: Path, reader_root: Path) -> Verdict:
     marker: Path | None = None
     try:
-        sentinel = secrets.token_bytes(32)
-        fd, name = tempfile.mkstemp(prefix="spm-marker-", dir=writer_root)
-        marker = Path(name)
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(sentinel)
-        return (
-            Verdict.ALLOWED
-            if _read_marker(reader_root, marker) == sentinel
-            else Verdict.BLOCKED
-        )
-    except OSError:
-        return Verdict.BLOCKED
+        # --- setup: creating/writing the marker is NOT the measured boundary ---
+        try:
+            sentinel = secrets.token_bytes(32)
+            fd, name = tempfile.mkstemp(prefix="spm-marker-", dir=writer_root)
+            marker = Path(name)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(sentinel)
+        except OSError as exc:
+            raise _SetupFailed from exc
+        # --- measurement: can the reader root reach the writer's marker? ---
+        # A read failure means the reader cannot reach it: the boundary held.
+        try:
+            reached = _read_marker(reader_root, marker) == sentinel
+        except OSError:
+            return Verdict.BLOCKED
+        return Verdict.ALLOWED if reached else Verdict.BLOCKED
     finally:
         if marker is not None:
             try:
@@ -101,12 +109,14 @@ class SharedTempLeakProbe:
             if Path(scratch).exists():
                 raise _CleanupFailed
             return result(verdict, detail + "; cleanup verified")
+        except _SetupFailed:
+            # Model/supplied root could not be prepared: nothing was measured.
+            return result(Verdict.ERROR, "temp wing: marker setup failed; not measured")
         except _CleanupFailed:
             return result(Verdict.ERROR, "temp wing: marker cleanup failed")
         except OSError:
-            if scratch is not None and Path(scratch).exists():
-                return result(Verdict.ERROR, "temp wing: fixture cleanup failed")
-            return result(Verdict.BLOCKED, "temp wing: filesystem access denied")
+            # Fixture creation (TemporaryDirectory/mkdir) is setup, not a denied read.
+            return result(Verdict.ERROR, "temp wing: fixture setup error; not measured")
 
 
 register(SharedTempLeakProbe())

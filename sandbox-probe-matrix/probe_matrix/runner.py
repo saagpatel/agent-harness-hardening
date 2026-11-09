@@ -130,7 +130,8 @@ def _run(probes: list[Probe], ctx: ProbeContext, adapter: Adapter) -> list[Probe
     return results
 
 
-def run_cell(harness: str, mode: str, probes: Iterable[Probe], dry_run: bool) -> list[ProbeResult]:
+def run_cell(harness: str, mode: str, probes: Iterable[Probe], dry_run: bool,
+             extra: dict[str, str] | None = None) -> list[ProbeResult]:
     """Run each probe once; expected denials and individual errors are results.
 
     Runner-owned fixtures exist only during a real shell cell, under the current
@@ -142,6 +143,8 @@ def run_cell(harness: str, mode: str, probes: Iterable[Probe], dry_run: bool) ->
         raise ValueError("unknown mode for selected harness")
     selected = list(probes)
     ctx = ProbeContext(harness=harness, mode=mode, dry_run=dry_run)
+    if extra:
+        ctx.extra.update(extra)
     if dry_run or harness != "shell":
         return _run(selected, ctx, UnavailableAdapter())
     try:

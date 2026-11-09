@@ -134,14 +134,20 @@ def clear_registry() -> None:
 # ---- helpers ------------------------------------------------------------------
 
 def host_fingerprint() -> str:
-    """A salted, truncated, non-reversible id for the machine a run came from.
+    """A truncated, non-reversible id for the machine a run came from.
 
-    Deliberately NOT a hostname, path, or user name — only enough to tell two
-    machines' baselines apart. Safe to commit.
+    Includes a machine-specific component (the stable hardware node id) so two
+    different machines on the same OS/arch get *different* fingerprints — that is
+    the whole point: telling one machine's baseline from another's. The raw inputs
+    (which could identify the host) are never emitted; only the 12-hex digest is,
+    which is non-reversible. Safe to commit.
     """
     import platform
+    import uuid
 
-    raw = f"{platform.system()}|{platform.machine()}|{platform.release()}"
+    # uuid.getnode() is a stable per-machine hardware identifier; hashing it keeps
+    # the fingerprint distinct per machine without ever exposing the raw value.
+    raw = f"{platform.system()}|{platform.machine()}|{platform.release()}|{uuid.getnode():x}"
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 

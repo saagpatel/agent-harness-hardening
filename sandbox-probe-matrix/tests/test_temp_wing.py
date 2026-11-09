@@ -58,14 +58,34 @@ def test_real_roots_cleaned_after_denied_read(
     assert all(list(directory.iterdir()) == [] for directory in (workdir, writer, reader))
 
 
-def test_denied_marker_creation_is_blocked(
+def test_denied_marker_creation_is_error_not_blocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Marker CREATION is fixture setup, not the measured read boundary. A setup
+    # failure must be ERROR, never a false BLOCKED that could later look like a
+    # blocked->allowed regression.
     def deny(*args: object, **kwargs: object) -> None:
         raise PermissionError
 
     monkeypatch.setattr(temp_wing.tempfile, "mkstemp", deny)
     result = temp_wing.SharedTempLeakProbe().run(ProbeContext(workdir=str(tmp_path)))
+    assert result.verdict == Verdict.ERROR
+    assert "not measured" in result.detail
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_denied_cross_root_read_is_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A denied READ of the writer's marker from the reader root is the one true
+    # BLOCKED: the boundary held.
+    import probes.temp as tw
+
+    def deny_read(reader_root, marker):  # type: ignore[no-untyped-def]
+        raise PermissionError
+
+    monkeypatch.setattr(tw, "_read_marker", deny_read)
+    result = tw.SharedTempLeakProbe().run(ProbeContext(workdir=str(tmp_path)))
     assert result.verdict == Verdict.BLOCKED
     assert list(tmp_path.iterdir()) == []
 

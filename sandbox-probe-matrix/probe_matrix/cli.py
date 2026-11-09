@@ -46,6 +46,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--probe", help="run a single registered probe ID")
     run.add_argument("--out", type=Path, help="write grid JSON here; otherwise JSON goes to stdout")
     run.add_argument("--dry-run", action="store_true", dest="run_dry_run")
+    run.add_argument("--enable-keychain", action="store_true",
+                     help="opt in to the Keychain Reach wing (metadata counts only; never values)")
     commands.add_parser("report", help="delegate to optional reporter")
     parsed = parser.parse_args(args)
     from probe_matrix.probes import register_all
@@ -67,7 +69,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         probes = [probe]
     try:
         assert_safe_environment(args=args)
-        results = run_cell(parsed.harness, mode, probes, parsed.dry_run or parsed.run_dry_run)
+        extra = {"keychain_enabled": "1"} if getattr(parsed, "enable_keychain", False) else None
+        results = run_cell(parsed.harness, mode, probes, parsed.dry_run or parsed.run_dry_run, extra=extra)
         grid = {
             "schema": SCHEMA,
             "generated_at": datetime.now(timezone.utc).isoformat(),
