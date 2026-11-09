@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Generated run output / baselines may carry local data: never commit real ones.
+*.local.json
+reports/*.html
+!reports/.gitkeep
+fingerprint-salt
