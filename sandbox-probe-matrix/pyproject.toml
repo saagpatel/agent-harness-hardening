@@ -1,0 +1,19 @@
+[project]
+name = "sandbox-probe-matrix"
+version = "0.1.0"
+description = "A rerunnable grid of safe, read-only boundary probes for agent sandboxes."
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+spm = "probe_matrix.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pyright>=1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["probe_matrix", "probes", "tests"]
+pythonVersion = "3.12"
