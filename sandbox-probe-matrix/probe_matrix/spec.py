@@ -174,11 +174,19 @@ def _install_id() -> bytes:
         import secrets
 
         ident = secrets.token_bytes(16)
-        path.write_bytes(ident)
+        # Atomic create: O_EXCL means concurrent first runs don't clobber each
+        # other. A loser gets FileExistsError and reads the winner's value, so one
+        # installation always yields ONE stable identity.
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
         try:
-            path.chmod(0o600)
-        except OSError:
-            pass
+            fd = os.open(path, flags, 0o600)
+        except FileExistsError:
+            data = path.read_bytes()
+            if data:
+                return data
+            raise HostIdentityUnavailable("install id file present but empty")
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(ident)
         return ident
     except OSError as exc:
         raise HostIdentityUnavailable(

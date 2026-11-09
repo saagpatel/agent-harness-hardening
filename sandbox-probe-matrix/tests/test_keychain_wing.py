@@ -57,25 +57,37 @@ def test_opt_in_metadata_counts_never_emit_planted_secrets(
         assert sentinel not in captured.out + captured.err + repr(result)
 
 
-@pytest.mark.parametrize("failure", ["denied", "oserror", "timeout"])
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        ("permission", Verdict.BLOCKED),   # explicit EACCES -> demonstrated denial
+        ("resource", Verdict.ERROR),       # EMFILE etc. -> inconclusive, not a denial
+        ("nonzero", Verdict.ERROR),        # locked keychain / utility error -> inconclusive
+        ("timeout", Verdict.ERROR),        # slow enumeration -> inconclusive
+    ],
+)
 def test_failures_do_not_echo_metadata_or_diagnostics(
-    failure: str, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str],
+    failure: str, expected: Verdict,
+    monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str],
 ) -> None:
+    import errno as _errno
+
     sentinel = "PLANTED_FAILURE_SECRET_17bacf"
     monkeypatch.setattr(keychain_wing.sys, "platform", "darwin")
 
     def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if failure == "oserror":
-            raise PermissionError(sentinel)
+        if failure == "permission":
+            raise PermissionError(_errno.EACCES, sentinel)
+        if failure == "resource":
+            raise OSError(_errno.EMFILE, sentinel)
         if failure == "timeout":
             raise subprocess.TimeoutExpired(args, 10, output=sentinel, stderr=sentinel)
         return subprocess.CompletedProcess(args, 1, stdout=sentinel, stderr=sentinel)
 
     monkeypatch.setattr(keychain_wing.subprocess, "run", fake_run)
     result = keychain_wing.KeychainReachProbe().run(ProbeContext(extra={"keychain_enabled": "1"}))
-    # A timeout is inconclusive (ERROR); a denial/nonzero exit is BLOCKED. Either
-    # way, no planted metadata/diagnostic value may appear in the output.
-    expected = Verdict.ERROR if failure == "timeout" else Verdict.BLOCKED
+    # BLOCKED only for a demonstrated permission denial; other failures are
+    # inconclusive (ERROR). No planted value may appear in the output either way.
     assert result.verdict == expected
     print(json.dumps(result.to_json()))
     captured = capfd.readouterr()

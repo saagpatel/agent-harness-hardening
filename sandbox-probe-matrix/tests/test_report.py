@@ -185,3 +185,15 @@ def test_baseline_preserved_when_comparison_fails(tmp_path):
     assert rc != 0  # cross-host comparison raised
     # The original baseline survived untouched.
     assert base_path.read_text() == original
+
+
+def test_install_id_is_stable_under_concurrent_first_runs(monkeypatch, tmp_path):
+    """Concurrent first runs must converge on one identity, not clobber each other."""
+    from concurrent.futures import ThreadPoolExecutor
+    from probe_matrix import spec
+
+    monkeypatch.delenv("SPM_INSTALL_ID", raising=False)
+    monkeypatch.setenv("SPM_SALT_DIR", str(tmp_path / "shared"))
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda _: spec.host_fingerprint(), range(8)))
+    assert len(set(results)) == 1  # one installation -> one fingerprint

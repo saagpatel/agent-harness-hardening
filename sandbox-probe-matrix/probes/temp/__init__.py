@@ -20,23 +20,35 @@ nothing (the writer session owns the marker's lifecycle).
 
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 
 from probe_matrix.spec import Category, ProbeContext, ProbeResult, Verdict, register
 
 
-def _read_only_reach(reader_root: Path, writer_marker: Path, sentinel: bytes) -> Verdict:
+# Only a permission/read-only denial demonstrates that the boundary held.
+_DENIED_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS}
+
+
+def _read_only_reach(reader_root: Path, writer_marker: Path, sentinel: bytes) -> tuple[Verdict, str]:
     """Attempt, read-only, to reach the writer's marker from the reader's root.
 
-    Resolves the writer marker relative to the reader root and reads it. A read
-    failure means the reader cannot reach it: the boundary held (BLOCKED)."""
+    * read + sentinel match        -> ALLOWED (cross-session leak demonstrated)
+    * read denied (EACCES/EPERM)   -> BLOCKED (isolation demonstrated)
+    * marker missing / I/O error   -> ERROR  (inconclusive: invalid handoff/env)
+    * read ok but sentinel mismatch-> ERROR  (inconclusive: unverified handoff)
+    """
     relative = os.path.relpath(writer_marker, reader_root)
     try:
         data = (reader_root / relative).read_bytes()
-    except OSError:
-        return Verdict.BLOCKED
-    return Verdict.ALLOWED if data == sentinel else Verdict.BLOCKED
+    except OSError as exc:
+        if exc.errno in _DENIED_ERRNOS:
+            return Verdict.BLOCKED, "reader denied access to the writer's marker"
+        return Verdict.ERROR, "marker unreachable (missing/io); inconclusive handoff"
+    if data == sentinel:
+        return Verdict.ALLOWED, "reader read the writer's marker"
+    return Verdict.ERROR, "sentinel mismatch; handoff unverified (inconclusive)"
 
 
 class SharedTempLeakProbe:
@@ -75,14 +87,14 @@ class SharedTempLeakProbe:
         except ValueError:
             return result(Verdict.ERROR, "temp wing: writer_sentinel is not valid hex")
         try:
-            verdict = _read_only_reach(
+            verdict, why = _read_only_reach(
                 Path(reader_root).absolute(), Path(marker).absolute(), sentinel
             )
         except OSError:
             return result(Verdict.ERROR, "temp wing: read-only reach failed to resolve")
         return result(
             verdict,
-            f"read-only cross-session reach: {verdict.value} "
+            f"read-only cross-session reach: {why} "
             "(independent writer marker; nothing written or deleted)",
         )
 

@@ -44,7 +44,7 @@ def test_reader_reaches_writer_marker_is_allowed(tmp_path: Path) -> None:
         "reader_root": str(reader_root),
     }))
     assert result.verdict == Verdict.ALLOWED
-    assert "read-only cross-session reach: allowed" in result.detail
+    assert "reader read the writer's marker" in result.detail
     # The probe created/deleted nothing.
     assert set(reader_root.iterdir()) == before
 
@@ -56,8 +56,10 @@ def test_reader_cannot_reach_isolated_marker_is_blocked(tmp_path: Path, monkeypa
     sentinel = bytes.fromhex("abababababab")
     marker = tmp_path / "writer" / "marker"
 
-    def deny(_path):  # a read that cannot reach the other session's marker
-        raise PermissionError
+    import errno as _errno
+
+    def deny(_path):  # a read DENIED by permission -> boundary held
+        raise PermissionError(_errno.EACCES, "denied")
 
     monkeypatch.setattr(Path, "read_bytes", lambda self: deny(self))
     result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
@@ -68,7 +70,9 @@ def test_reader_cannot_reach_isolated_marker_is_blocked(tmp_path: Path, monkeypa
     assert result.verdict == Verdict.BLOCKED
 
 
-def test_wrong_sentinel_does_not_count_as_leak(tmp_path: Path) -> None:
+def test_wrong_sentinel_is_inconclusive_not_a_leak_or_hold(tmp_path: Path) -> None:
+    # A read that returns something other than the writer's sentinel means the
+    # handoff is unverified: inconclusive (ERROR), neither a leak nor a hold.
     reader_root = tmp_path / "reader"
     reader_root.mkdir()
     marker = reader_root / "writer-marker"
@@ -78,7 +82,8 @@ def test_wrong_sentinel_does_not_count_as_leak(tmp_path: Path) -> None:
         "writer_sentinel": "00ff11ee22dd",  # does not match the marker contents
         "reader_root": str(reader_root),
     }))
-    assert result.verdict == Verdict.BLOCKED
+    assert result.verdict == Verdict.ERROR
+    assert "mismatch" in result.detail
 
 
 def test_bad_sentinel_hex_is_error(tmp_path: Path) -> None:
@@ -86,5 +91,17 @@ def test_bad_sentinel_hex_is_error(tmp_path: Path) -> None:
         "writer_marker": str(tmp_path / "m"),
         "writer_sentinel": "nothex",
         "reader_root": str(tmp_path),
+    }))
+    assert result.verdict == Verdict.ERROR
+
+
+def test_missing_marker_is_inconclusive(tmp_path: Path) -> None:
+    # A deleted/absent writer marker is inconclusive (ERROR), not a false hold.
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(reader_root / "nope"),
+        "writer_sentinel": "00ff11ee22dd",
+        "reader_root": str(reader_root),
     }))
     assert result.verdict == Verdict.ERROR

@@ -35,31 +35,41 @@ class _FixtureDirty(Exception):
     pass
 
 
-def _run_git(git: str, cwd: Path, env: dict[str, str], *args: str) -> tuple[int, str]:
+def _run_git(git: str, cwd: Path, env: dict[str, str], *args: str) -> tuple[int, str, str]:
     completed = subprocess.run(
         [git, "-C", str(cwd), *args],
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,  # captured PRIVATELY to classify denial vs other; never emitted
         text=True,
         timeout=15,
         check=False,
     )
-    return completed.returncode, completed.stdout.strip()
+    return completed.returncode, completed.stdout.strip(), completed.stderr
+
+
+def _is_permission_denial(stderr: str) -> bool:
+    s = stderr.lower()
+    return ("permission denied" in s
+            or "operation not permitted" in s
+            or "read-only file system" in s)
 
 
 def _git_write(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
-    """The tested operation. A nonzero status is a demonstrated denial."""
-    rc, out = _run_git(git, cwd, env, *args)
+    """The tested operation. Only an explicit permission denial is BLOCKED; a lock,
+    resource or I/O failure is inconclusive (not a demonstrated denial)."""
+    rc, out, err = _run_git(git, cwd, env, *args)
     if rc:
-        raise _GitDenied
+        if _is_permission_denial(err):
+            raise _GitDenied
+        raise _MeasureFailed  # lock/resource/io: could not measure, not a denial
     return out
 
 
 def _git_setup(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
     """Fixture setup. A failure means we could not measure, not that it was blocked."""
-    rc, out = _run_git(git, cwd, env, *args)
+    rc, out, _err = _run_git(git, cwd, env, *args)
     if rc:
         raise _SetupUnavailable
     return out
@@ -67,7 +77,7 @@ def _git_setup(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
 
 def _git_read(git: str, cwd: Path, env: dict[str, str], *args: str) -> str:
     """Read-back of the result. A failure means we could not measure."""
-    rc, out = _run_git(git, cwd, env, *args)
+    rc, out, _err = _run_git(git, cwd, env, *args)
     if rc:
         raise _MeasureFailed
     return out
@@ -124,7 +134,7 @@ def _fixture(root: Path, git: str) -> Verdict:
         if config.read_bytes() != original_config or sentinel.exists():
             raise _FixtureDirty
         for checkout in (main, side):
-            rc, dirty = _run_git(git, checkout, env, "status", "--porcelain", "--untracked-files=all")
+            _rc, dirty, _err = _run_git(git, checkout, env, "status", "--porcelain", "--untracked-files=all")
             if dirty:
                 raise _FixtureDirty
     return verdict

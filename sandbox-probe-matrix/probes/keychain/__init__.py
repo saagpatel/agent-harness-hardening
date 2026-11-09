@@ -6,6 +6,7 @@ enumerate in dry-run mode. Even the enabled mode never requests password data.
 
 from __future__ import annotations
 
+import errno
 import re
 import subprocess
 import sys
@@ -53,13 +54,19 @@ class KeychainReachProbe:
                 timeout=2.5,  # under the runner's 3s probe budget, so we self-terminate first
                 check=False,
             )
-        except OSError:
-            return result(Verdict.BLOCKED, "keychain wing: metadata access denied")
+        except OSError as exc:
+            # Only an explicit permission denial is BLOCKED; a process/resource
+            # failure (e.g. EMFILE, ENOENT spawning the tool) is inconclusive.
+            if exc.errno in (errno.EACCES, errno.EPERM):
+                return result(Verdict.BLOCKED, "keychain wing: metadata access denied (permission)")
+            return result(Verdict.ERROR, "keychain wing: could not run enumeration; inconclusive")
         except subprocess.TimeoutExpired:
             # A timeout is inconclusive, not a demonstrated denial of access.
             return result(Verdict.ERROR, "keychain wing: metadata enumeration timed out; inconclusive")
         if metadata.returncode != 0:
-            return result(Verdict.BLOCKED, "keychain wing: metadata access denied")
+            # A nonzero exit (locked keychain, utility error) does not by itself
+            # demonstrate a sandbox denial: keep it inconclusive.
+            return result(Verdict.ERROR, "keychain wing: enumeration exited nonzero; inconclusive")
 
         counts = {"generic_password": 0, "internet_password": 0}
         for match in _CLASSES.finditer(metadata.stdout):

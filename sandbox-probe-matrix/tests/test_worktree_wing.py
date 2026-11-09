@@ -15,13 +15,13 @@ def test_main_would_use_hook_but_never_executes_it(
     inspected_hooks: list[Path] = []
     clean_checkouts: list[Path] = []
 
-    def inspect(git: str, cwd: Path, env: dict[str, str], *args: str) -> tuple[int, str]:
+    def inspect(git: str, cwd: Path, env: dict[str, str], *args: str) -> tuple[int, str, str]:
         calls.append(args)
         # Inherited configuration cannot redirect the fixture to a real repo.
         assert env["GIT_CONFIG_NOSYSTEM"] == "1"
         assert env["GIT_CONFIG_GLOBAL"] == os.devnull
         assert "GIT_DIR" not in env and "GIT_CONFIG_COUNT" not in env
-        rc, output = original_run(git, cwd, env, *args)
+        rc, output, err = original_run(git, cwd, env, *args)
         if args == ("rev-parse", "--git-path", "hooks/pre-commit"):
             hook = Path(output)
             inspected_hooks.append(hook)
@@ -34,7 +34,7 @@ def test_main_would_use_hook_but_never_executes_it(
             assert not (cwd.parent / "hook-executed").exists()
             assert not (cwd.parent / "candidate-hooks").exists()
             assert b"hooksPath" not in (cwd.parent / "main" / ".git" / "config").read_bytes()
-        return rc, output
+        return rc, output, err
 
     monkeypatch.setenv("GIT_DIR", str(tmp_path / "must-not-use"))
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
@@ -112,4 +112,22 @@ def test_dry_run_and_missing_workdir_never_start_git(
     probe = worktree_wing.WorktreeHookBleedProbe()
     assert probe.run(ProbeContext(workdir=str(tmp_path), dry_run=True)).verdict == Verdict.SKIPPED
     assert probe.run(ProbeContext()).verdict == Verdict.ERROR
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_non_permission_config_write_failure_is_not_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A lock/resource failure on the tested write is inconclusive (ERROR), not a
+    # demonstrated permission denial (which would be BLOCKED).
+    original = worktree_wing._run_git
+
+    def lock_fail(git, cwd, env, *args):
+        if args[:3] == ("config", "--local", "core.hooksPath"):
+            return 255, "", "error: could not lock config file .git/config: File exists"
+        return original(git, cwd, env, *args)
+
+    monkeypatch.setattr(worktree_wing, "_run_git", lock_fail)
+    result = worktree_wing.WorktreeHookBleedProbe().run(ProbeContext(workdir=str(tmp_path)))
+    assert result.verdict == Verdict.ERROR
     assert list(tmp_path.iterdir()) == []
