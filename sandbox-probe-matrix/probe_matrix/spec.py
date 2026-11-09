@@ -174,20 +174,33 @@ def _install_id() -> bytes:
         import secrets
 
         ident = secrets.token_bytes(16)
-        # Atomic create: O_EXCL means concurrent first runs don't clobber each
-        # other. A loser gets FileExistsError and reads the winner's value, so one
-        # installation always yields ONE stable identity.
-        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        # Publish a FULLY-WRITTEN identity atomically: write the bytes to a private
+        # temp file first, then hard-link it into place. os.link fails if the final
+        # path already exists, so a concurrent winner is never overwritten and no
+        # empty file is ever observable. A loser reads the winner's value.
+        import tempfile
+
+        fd, tmp = tempfile.mkstemp(prefix=".install-id-", dir=str(path.parent))
         try:
-            fd = os.open(path, flags, 0o600)
-        except FileExistsError:
-            data = path.read_bytes()
-            if data:
-                return data
-            raise HostIdentityUnavailable("install id file present but empty")
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(ident)
-        return ident
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(ident)
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
+            try:
+                os.link(tmp, path)
+                return ident
+            except FileExistsError:
+                data = path.read_bytes()
+                if data:
+                    return data
+                raise HostIdentityUnavailable("install id file present but empty")
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
     except OSError as exc:
         raise HostIdentityUnavailable(
             "no private install id available: set SPM_SALT_DIR to a writable "

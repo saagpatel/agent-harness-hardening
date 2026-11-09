@@ -278,12 +278,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f'report: {exc}', file=sys.stderr)
         return 2
 
-    # Only now, after a successful comparison/render, persist the new baseline —
-    # atomically, so a crash mid-write cannot corrupt or lose the old one.
-    if parsed.save_baseline:
-        _atomic_save_baseline(grids, parsed.save_baseline)
-
+    # Deliver ALL requested output — stdout and HTML — and flush it BEFORE replacing
+    # the baseline. If any write fails, the command fails with the old baseline still
+    # intact, so a retry still sees the unreported regression (no silent data loss).
     sys.stdout.write(terminal_out + '\n')
+    sys.stdout.flush()
     if html_out is not None and parsed.html:
         Path(parsed.html).write_text(html_out, encoding='utf-8')
+
+    # Reports succeeded: only now persist the new baseline, atomically.
+    if parsed.save_baseline:
+        _atomic_save_baseline(grids, parsed.save_baseline)
     return 0

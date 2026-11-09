@@ -197,3 +197,42 @@ def test_install_id_is_stable_under_concurrent_first_runs(monkeypatch, tmp_path)
     with ThreadPoolExecutor(max_workers=8) as ex:
         results = list(ex.map(lambda _: spec.host_fingerprint(), range(8)))
     assert len(set(results)) == 1  # one installation -> one fingerprint
+
+
+def test_baseline_not_replaced_when_html_write_fails(tmp_path):
+    """If HTML output fails, the baseline must not have been replaced (no lost regression)."""
+    import json as _json
+    import pytest
+    from probe_matrix import report
+
+    def grid(fp, verdict):
+        return {"schema": "spm/v1", "generated_at": 0.0, "harness": "shell", "mode": "default",
+                "host_fingerprint": fp,
+                "results": [{"probe_id": "files.x", "category": "files", "verdict": verdict,
+                             "detail": "", "harness": "shell", "mode": "default", "elapsed_ms": 1}]}
+    base = tmp_path / "baseline.json"
+    report.save_baseline([grid("aaaaaaaaaaaa", "blocked")], base)
+    original = base.read_text()
+    cur = tmp_path / "cur.json"
+    cur.write_text(_json.dumps(grid("aaaaaaaaaaaa", "allowed")))  # same host, a real flip
+
+    # HTML destination is an existing directory -> write fails.
+    bad_html = tmp_path / "html_dir"
+    bad_html.mkdir()
+    with pytest.raises((IsADirectoryError, OSError, PermissionError)):
+        report.main(["--grid", str(cur), "--baseline", str(base), "--diff",
+                     "--save-baseline", str(base), "--html", str(bad_html)])
+    # Baseline still holds the pre-run (blocked) state: the regression is not lost.
+    assert base.read_text() == original
+
+
+def test_install_id_file_is_never_empty(monkeypatch, tmp_path):
+    from probe_matrix import spec
+    monkeypatch.delenv("SPM_INSTALL_ID", raising=False)
+    d = tmp_path / "iddir"
+    monkeypatch.setenv("SPM_SALT_DIR", str(d))
+    fp = spec.host_fingerprint()
+    assert len(fp) == 12
+    assert (d / "install-id").read_bytes()  # non-empty
+    # a second call reads the same published id
+    assert spec.host_fingerprint() == fp

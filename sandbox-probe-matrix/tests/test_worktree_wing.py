@@ -131,3 +131,21 @@ def test_non_permission_config_write_failure_is_not_blocked(
     result = worktree_wing.WorktreeHookBleedProbe().run(ProbeContext(workdir=str(tmp_path)))
     assert result.verdict == Verdict.ERROR
     assert list(tmp_path.iterdir()) == []
+
+
+def test_denied_write_with_denied_restore_stays_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The tested write is denied (BLOCKED). The config is therefore unchanged, so the
+    # finally performs no restoration write and the BLOCKED verdict is preserved.
+    original_write = worktree_wing._git_write
+
+    def deny_config_write(git, cwd, env, *args):
+        if args[:3] == ("config", "--local", "core.hooksPath"):
+            raise worktree_wing._GitDenied
+        return original_write(git, cwd, env, *args)
+
+    monkeypatch.setattr(worktree_wing, "_git_write", deny_config_write)
+    result = worktree_wing.WorktreeHookBleedProbe().run(ProbeContext(workdir=str(tmp_path)))
+    assert result.verdict == Verdict.BLOCKED
+    assert list(tmp_path.iterdir()) == []

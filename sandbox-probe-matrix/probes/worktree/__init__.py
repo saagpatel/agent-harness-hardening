@@ -127,8 +127,12 @@ def _fixture(root: Path, git: str) -> Verdict:
             else Verdict.BLOCKED
         )
     finally:
-        # Restore even when the write or the read-only inspection was denied.
-        config.write_bytes(original_config)
+        # Restore the config ONLY if it actually changed. When the tested write was
+        # denied the config is already intact, and an unconditional restore write
+        # would itself hit the same write denial and raise in finally — masking the
+        # demonstrated BLOCKED as an ERROR. Restoring only on change avoids that.
+        if config.read_bytes() != original_config:
+            config.write_bytes(original_config)
         hook.unlink(missing_ok=True)
         candidate_hooks.rmdir()
         if config.read_bytes() != original_config or sentinel.exists():
