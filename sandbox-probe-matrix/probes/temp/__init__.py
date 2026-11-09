@@ -1,77 +1,53 @@
-"""Sentinel-only reachability between temp roots, under the current identity.
+"""Shared Temp Leak wing — a READ-ONLY cross-session reachability check.
 
-Two roots model session namespaces, not separate sandbox processes or identities.
-Optional supplied roots let the runner select real namespaces without reading any
-pre-existing files. Only files exclusively created by this probe are read/deleted.
+A true cross-session temp leak can only be measured across two independent
+sessions: one *writer* session seeds a marker in its own temp area, and a
+separate *reader* session (this probe) attempts to read it WITHOUT writing
+anything. The runner cannot fabricate a second session in-process, so unless a
+real writer handoff is supplied this wing reports SKIPPED (unsupported here) —
+never a false ALLOWED from reading a marker the same process just wrote.
+
+Supply the handoff via `ctx.extra`:
+  * `writer_marker`   — absolute path to the marker an independent writer session
+                        created (this probe NEVER creates it);
+  * `writer_sentinel` — hex of the marker's expected contents;
+  * `reader_root`     — this reader session's temp root, from which the marker
+                        path is resolved.
+The probe attempts a read-only read from the reader root: ALLOWED if it reaches
+the writer's sentinel, BLOCKED if it cannot. It writes nothing and deletes
+nothing (the writer session owns the marker's lifecycle).
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-import secrets
-import tempfile
 
 from probe_matrix.spec import Category, ProbeContext, ProbeResult, Verdict, register
 
 
-class _CleanupFailed(Exception):
-    pass
+def _read_only_reach(reader_root: Path, writer_marker: Path, sentinel: bytes) -> Verdict:
+    """Attempt, read-only, to reach the writer's marker from the reader's root.
 
-
-class _SetupFailed(Exception):
-    """Creating/writing the writer marker failed: nothing was measured."""
-
-
-def _read_marker(reader_root: Path, marker: Path) -> bytes:
-    # Resolve the writer's marker starting from the reader's namespace. No chdir
-    # changes the runner's process state, and no existing temp files are scanned.
-    relative = os.path.relpath(marker, reader_root)
-    return (reader_root / relative).read_bytes()
-
-
-def _check_roots(writer_root: Path, reader_root: Path) -> Verdict:
-    marker: Path | None = None
+    Resolves the writer marker relative to the reader root and reads it. A read
+    failure means the reader cannot reach it: the boundary held (BLOCKED)."""
+    relative = os.path.relpath(writer_marker, reader_root)
     try:
-        # --- setup: creating/writing the marker is NOT the measured boundary ---
-        try:
-            sentinel = secrets.token_bytes(32)
-            fd, name = tempfile.mkstemp(prefix="spm-marker-", dir=writer_root)
-            marker = Path(name)
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(sentinel)
-        except OSError as exc:
-            raise _SetupFailed from exc
-        # --- measurement: can the reader root reach the writer's marker? ---
-        # A read failure means the reader cannot reach it: the boundary held.
-        try:
-            reached = _read_marker(reader_root, marker) == sentinel
-        except OSError:
-            return Verdict.BLOCKED
-        return Verdict.ALLOWED if reached else Verdict.BLOCKED
-    finally:
-        if marker is not None:
-            try:
-                marker.unlink()
-                # lstat verifies removal even if a dangling symlink were present.
-                try:
-                    marker.lstat()
-                except FileNotFoundError:
-                    pass
-                else:
-                    raise _CleanupFailed
-            except OSError:
-                raise _CleanupFailed from None
+        data = (reader_root / relative).read_bytes()
+    except OSError:
+        return Verdict.BLOCKED
+    return Verdict.ALLOWED if data == sentinel else Verdict.BLOCKED
 
 
 class SharedTempLeakProbe:
     id = "temp.shared-session-leak"
     category = Category.TEMP
     title = "Shared Temp Leak"
-    description = "Can a reader temp root reach a writer root's random marker?"
+    description = "Can this reader session read a marker another session left in temp?"
     safety_note = (
-        "Reads only an exclusively created random sentinel; removes and verifies "
-        "every marker. Model directories are confined to the runner's workdir."
+        "Read-only: the probe reads an independently-created marker and writes/"
+        "deletes nothing. Without a real writer-session handoff it reports SKIPPED "
+        "rather than fabricating a same-process result."
     )
 
     def run(self, ctx: ProbeContext) -> ProbeResult:
@@ -83,55 +59,32 @@ class SharedTempLeakProbe:
 
         if ctx.dry_run:
             return result(Verdict.SKIPPED, "temp wing: dry-run")
-        if not ctx.workdir:
-            return result(Verdict.ERROR, "temp wing: workdir required")
-        supplied_a = ctx.extra.get("session_a_tmp")
-        supplied_b = ctx.extra.get("session_b_tmp")
-        if bool(supplied_a) != bool(supplied_b):
-            return result(Verdict.ERROR, "temp wing: both session roots required")
 
-        scratch: str | None = None
+        marker = ctx.extra.get("writer_marker")
+        sentinel_hex = ctx.extra.get("writer_sentinel")
+        reader_root = ctx.extra.get("reader_root")
+        if not (marker and sentinel_hex and reader_root):
+            return result(
+                Verdict.SKIPPED,
+                "temp wing: cross-session leak unsupported in-process; supply an "
+                "independent writer session's marker (writer_marker + writer_sentinel) "
+                "and this reader session's root (reader_root)",
+            )
         try:
-            with tempfile.TemporaryDirectory(prefix="spm-temp-", dir=ctx.workdir) as name:
-                scratch = name
-                root = Path(name)
-                writer, reader = root / "session-a", root / "session-b"
-                writer.mkdir()
-                reader.mkdir()
-                # The modeled sibling-directory read runs in ONE process and
-                # namespace, so it always succeeds and is only a self-check that the
-                # probe mechanism works — NOT a cross-session boundary measurement.
-                modeled = _check_roots(writer, reader)
-                if supplied_a and supplied_b:
-                    # Real measurement: an independent writer session seeded
-                    # session_a_tmp and this reader session attempts to reach it.
-                    verdict = _check_roots(
-                        Path(supplied_a).absolute(), Path(supplied_b).absolute()
-                    )
-                    detail = (
-                        f"supplied session roots: {verdict.value}; "
-                        f"modeled self-check: {modeled.value}"
-                    )
-                else:
-                    # No independent session roots: the cross-session boundary was
-                    # not exercised, so the cell is inconclusive, not a leak.
-                    verdict = Verdict.SKIPPED
-                    detail = (
-                        "cross-session measurement requires two independent session "
-                        "temp roots (ctx.extra session_a_tmp/session_b_tmp); "
-                        f"modeled self-check only: {modeled.value}"
-                    )
-            if Path(scratch).exists():
-                raise _CleanupFailed
-            return result(verdict, detail + "; cleanup verified")
-        except _SetupFailed:
-            # Model/supplied root could not be prepared: nothing was measured.
-            return result(Verdict.ERROR, "temp wing: marker setup failed; not measured")
-        except _CleanupFailed:
-            return result(Verdict.ERROR, "temp wing: marker cleanup failed")
+            sentinel = bytes.fromhex(sentinel_hex)
+        except ValueError:
+            return result(Verdict.ERROR, "temp wing: writer_sentinel is not valid hex")
+        try:
+            verdict = _read_only_reach(
+                Path(reader_root).absolute(), Path(marker).absolute(), sentinel
+            )
         except OSError:
-            # Fixture creation (TemporaryDirectory/mkdir) is setup, not a denied read.
-            return result(Verdict.ERROR, "temp wing: fixture setup error; not measured")
+            return result(Verdict.ERROR, "temp wing: read-only reach failed to resolve")
+        return result(
+            verdict,
+            f"read-only cross-session reach: {verdict.value} "
+            "(independent writer marker; nothing written or deleted)",
+        )
 
 
 register(SharedTempLeakProbe())

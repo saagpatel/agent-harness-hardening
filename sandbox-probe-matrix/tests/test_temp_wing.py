@@ -6,120 +6,85 @@ from probe_matrix.spec import ProbeContext, Verdict, all_probes
 import probes.temp as temp_wing
 
 
-def test_no_session_roots_is_skipped_not_a_leak(tmp_path: Path) -> None:
-    # Without two independent session temp roots, the cross-session boundary is not
-    # exercised: the same-process sibling-dir control is only a self-check, so the
-    # cell must be SKIPPED (inconclusive), never a false ALLOWED (leak).
+def test_registered():
     probe = temp_wing.SharedTempLeakProbe()
     assert any(item.id == probe.id for item in all_probes())
-    result = probe.run(ProbeContext(workdir=str(tmp_path), harness="test", mode="isolated"))
-    assert result.verdict == Verdict.SKIPPED
-    assert result.harness == "test" and result.mode == "isolated"
-    assert "modeled self-check only" in result.detail
-    assert "cleanup verified" in result.detail
-    assert list(tmp_path.iterdir()) == []
 
 
-def test_same_root_positive_control_preserves_existing_files(tmp_path: Path) -> None:
-    workdir, session = tmp_path / "scratch", tmp_path / "session"
-    workdir.mkdir()
-    session.mkdir()
-    existing = session / "existing"
-    existing.write_bytes(b"unrelated fixture data")
-    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(
-        workdir=str(workdir),
-        extra={"session_a_tmp": str(session), "session_b_tmp": str(session)},
-    ))
-    assert result.verdict == Verdict.ALLOWED
-    assert "supplied session roots: allowed" in result.detail
-    assert list(workdir.iterdir()) == []
-    assert list(session.iterdir()) == [existing]
-    assert existing.read_bytes() == b"unrelated fixture data"
-
-
-def test_real_roots_cleaned_after_denied_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workdir, writer, reader = (tmp_path / name for name in ("scratch", "a", "b"))
-    for directory in (workdir, writer, reader):
-        directory.mkdir()
-    original = temp_wing._read_marker
-
-    def deny_supplied(reader_root: Path, marker: Path) -> bytes:
-        if reader_root == reader:
-            raise PermissionError("sensitive diagnostic must not escape")
-        return original(reader_root, marker)
-
-    monkeypatch.setattr(temp_wing, "_read_marker", deny_supplied)
-    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(
-        workdir=str(workdir),
-        extra={"session_a_tmp": str(writer), "session_b_tmp": str(reader)},
-    ))
-    assert result.verdict == Verdict.BLOCKED
-    assert "sensitive diagnostic" not in result.detail
-    assert "cleanup verified" in result.detail
-    assert all(list(directory.iterdir()) == [] for directory in (workdir, writer, reader))
-
-
-def test_denied_marker_creation_is_error_not_blocked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Marker CREATION is fixture setup, not the measured read boundary. A setup
-    # failure must be ERROR, never a false BLOCKED that could later look like a
-    # blocked->allowed regression.
-    def deny(*args: object, **kwargs: object) -> None:
-        raise PermissionError
-
-    monkeypatch.setattr(temp_wing.tempfile, "mkstemp", deny)
-    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(workdir=str(tmp_path)))
-    assert result.verdict == Verdict.ERROR
-    assert "not measured" in result.detail
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_denied_cross_root_read_is_blocked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # A denied READ of the writer's marker from the reader root is the one true
-    # BLOCKED: the boundary held.
-    import probes.temp as tw
-
-    def deny_read(reader_root, marker):  # type: ignore[no-untyped-def]
-        raise PermissionError
-
-    monkeypatch.setattr(tw, "_read_marker", deny_read)
-    # Isolated sessions: a reader that cannot reach the writer's marker -> BLOCKED.
-    a, b, scratch = tmp_path / "a", tmp_path / "b", tmp_path / "scratch"
-    for d in (a, b, scratch):
-        d.mkdir()
-    result = tw.SharedTempLeakProbe().run(ProbeContext(
-        workdir=str(scratch),
-        extra={"session_a_tmp": str(a), "session_b_tmp": str(b)},
-    ))
-    assert result.verdict == Verdict.BLOCKED
-
-
-def test_cleanup_failure_is_not_reported_as_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    unlink = Path.unlink
-
-    def deny_marker_unlink(path: Path, missing_ok: bool = False) -> None:
-        if path.name.startswith("spm-marker-"):
-            raise PermissionError
-        unlink(path, missing_ok=missing_ok)
-
-    monkeypatch.setattr(Path, "unlink", deny_marker_unlink)
-    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(workdir=str(tmp_path)))
-    assert result.verdict == Verdict.ERROR
-    assert "cleanup failed" in result.detail
-    # TemporaryDirectory's independent cleanup still removed the model marker.
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_dry_run_and_incomplete_roots_do_not_write(tmp_path: Path) -> None:
+def test_dry_run_is_skipped(tmp_path: Path) -> None:
     probe = temp_wing.SharedTempLeakProbe()
-    assert probe.run(ProbeContext(workdir=str(tmp_path), dry_run=True)).verdict == Verdict.SKIPPED
-    result = probe.run(ProbeContext(workdir=str(tmp_path), extra={"session_a_tmp": "unused"}))
+    assert probe.run(ProbeContext(dry_run=True)).verdict == Verdict.SKIPPED
+
+
+def test_no_handoff_is_skipped_unsupported(tmp_path: Path) -> None:
+    # Without a real writer-session handoff the cross-session boundary is not
+    # exercised: SKIPPED (unsupported), never a false ALLOWED leak.
+    result = temp_wing.SharedTempLeakProbe().run(
+        ProbeContext(workdir=str(tmp_path), harness="test", mode="isolated")
+    )
+    assert result.verdict == Verdict.SKIPPED
+    assert "unsupported in-process" in result.detail
+    assert result.harness == "test" and result.mode == "isolated"
+
+
+def test_reader_reaches_writer_marker_is_allowed(tmp_path: Path) -> None:
+    # An independent writer session (here, the test) left a marker; the reader
+    # session shares the same root and reaches it -> ALLOWED. The probe writes
+    # nothing: the only file present is the one the test created.
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    sentinel = bytes.fromhex("00ff11ee22dd")
+    marker = reader_root / "writer-marker"
+    marker.write_bytes(sentinel)
+    before = set(reader_root.iterdir())
+
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(marker),
+        "writer_sentinel": sentinel.hex(),
+        "reader_root": str(reader_root),
+    }))
+    assert result.verdict == Verdict.ALLOWED
+    assert "read-only cross-session reach: allowed" in result.detail
+    # The probe created/deleted nothing.
+    assert set(reader_root.iterdir()) == before
+
+
+def test_reader_cannot_reach_isolated_marker_is_blocked(tmp_path: Path, monkeypatch) -> None:
+    # Isolated sessions: the reader's root cannot reach the writer's marker.
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    sentinel = bytes.fromhex("abababababab")
+    marker = tmp_path / "writer" / "marker"
+
+    def deny(_path):  # a read that cannot reach the other session's marker
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "read_bytes", lambda self: deny(self))
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(marker),
+        "writer_sentinel": sentinel.hex(),
+        "reader_root": str(reader_root),
+    }))
+    assert result.verdict == Verdict.BLOCKED
+
+
+def test_wrong_sentinel_does_not_count_as_leak(tmp_path: Path) -> None:
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    marker = reader_root / "writer-marker"
+    marker.write_bytes(b"something-else")
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(marker),
+        "writer_sentinel": "00ff11ee22dd",  # does not match the marker contents
+        "reader_root": str(reader_root),
+    }))
+    assert result.verdict == Verdict.BLOCKED
+
+
+def test_bad_sentinel_hex_is_error(tmp_path: Path) -> None:
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(tmp_path / "m"),
+        "writer_sentinel": "nothex",
+        "reader_root": str(tmp_path),
+    }))
     assert result.verdict == Verdict.ERROR
-    assert list(tmp_path.iterdir()) == []

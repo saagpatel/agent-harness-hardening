@@ -130,3 +130,19 @@ def test_ssh_only_stats_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     assert probe is not None
     assert probe.run(ProbeContext()).verdict == Verdict.ALLOWED
     assert seen == [".ssh"]
+
+
+def test_subprocess_timeout_is_skipped_not_blocked():
+    """A child-process timeout is inconclusive (SKIPPED), so a later success is
+    not a false blocked->allowed regression."""
+    import subprocess
+    from probe_matrix.spec import Category, ProbeContext, Verdict
+    from probes.core._base import CoreProbe
+
+    def times_out(_ctx):
+        raise subprocess.TimeoutExpired(cmd=["/usr/bin/true"], timeout=2)
+
+    probe = CoreProbe("app.slow", Category.APP_LAUNCH, "Slow", "Slow?", "safe", times_out)
+    result = probe.run(ProbeContext())
+    assert result.verdict == Verdict.SKIPPED
+    assert "inconclusive" in result.detail

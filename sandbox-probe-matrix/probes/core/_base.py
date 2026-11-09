@@ -55,7 +55,9 @@ class CoreProbe:
             except OSError as exc:
                 verdict, detail = os_failure(exc)
             except subprocess.TimeoutExpired:
-                verdict, detail = Verdict.BLOCKED, "child process exceeded probe budget"
+                # A slow child does not demonstrate a denial; inconclusive, like a
+                # socket/keychain timeout, so a later success is not a false regression.
+                verdict, detail = Verdict.SKIPPED, "child process timed out; inconclusive (not a denial)"
             except Exception:
                 verdict, detail = Verdict.ERROR, "probe failed; diagnostic values suppressed"
         return ProbeResult(self.id, self.category, verdict, detail, ctx.harness, ctx.mode)
