@@ -300,7 +300,19 @@ def main(argv: list[str] | None = None) -> int:
     # destroy the saved comparison state.
     if parsed.html:
         protected = [p for p in ([parsed.baseline, parsed.save_baseline] + list(parsed.grid)) if p]
-        if _aliases_any(parsed.html, protected):
+        refuse = _aliases_any(parsed.html, protected)
+        # When the grid was read from stdin (no --grid), a redirect `< run.json` makes
+        # the input the regular file behind fd 0; guard it so --html can't truncate it.
+        if not refuse and not parsed.grid:
+            import os as _os
+
+            try:
+                in_st = _os.fstat(0)
+                html_st = _os.stat(parsed.html)
+                refuse = (in_st.st_ino != 0 and (in_st.st_dev, in_st.st_ino) == (html_st.st_dev, html_st.st_ino))
+            except OSError:
+                refuse = False
+        if refuse:
             print('report: --html path aliases a grid or baseline file; refusing', file=sys.stderr)
             return 2
 

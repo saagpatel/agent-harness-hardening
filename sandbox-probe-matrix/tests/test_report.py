@@ -258,3 +258,32 @@ def test_html_aliasing_baseline_is_refused(tmp_path):
                       "--save-baseline", str(base), "--html", str(base)])
     assert rc == 2
     assert base.read_text() == original  # baseline untouched
+
+
+def test_html_aliasing_stdin_grid_is_refused(tmp_path):
+    """`report --html run.json < run.json` must refuse and leave run.json intact."""
+    import json as _json
+    import os
+
+    from probe_matrix import report
+
+    grid = {"schema": "spm/v1", "generated_at": 0.0, "harness": "shell", "mode": "default",
+            "host_fingerprint": "aaaaaaaaaaaa",
+            "results": [{"probe_id": "files.x", "category": "files", "verdict": "allowed",
+                         "detail": "", "harness": "shell", "mode": "default", "elapsed_ms": 1}]}
+    run = tmp_path / "run.json"
+    run.write_text(_json.dumps(grid))
+    original = run.read_text()
+
+    # Redirect fd 0 to run.json so /dev/stdin resolves to it (as a shell `< run.json` would).
+    saved = os.dup(0)
+    fd = os.open(run, os.O_RDONLY)
+    try:
+        os.dup2(fd, 0)
+        rc = report.main(["--html", str(run)])  # no --grid -> reads stdin
+    finally:
+        os.dup2(saved, 0)
+        os.close(fd)
+        os.close(saved)
+    assert rc == 2
+    assert run.read_text() == original  # grid file untouched
