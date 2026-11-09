@@ -6,13 +6,16 @@ from probe_matrix.spec import ProbeContext, Verdict, all_probes
 import probes.temp as temp_wing
 
 
-def test_registered_and_modeled_roots_cleaned(tmp_path: Path) -> None:
+def test_no_session_roots_is_skipped_not_a_leak(tmp_path: Path) -> None:
+    # Without two independent session temp roots, the cross-session boundary is not
+    # exercised: the same-process sibling-dir control is only a self-check, so the
+    # cell must be SKIPPED (inconclusive), never a false ALLOWED (leak).
     probe = temp_wing.SharedTempLeakProbe()
     assert any(item.id == probe.id for item in all_probes())
     result = probe.run(ProbeContext(workdir=str(tmp_path), harness="test", mode="isolated"))
-    assert result.verdict == Verdict.ALLOWED
+    assert result.verdict == Verdict.SKIPPED
     assert result.harness == "test" and result.mode == "isolated"
-    assert "current identity" in result.detail
+    assert "modeled self-check only" in result.detail
     assert "cleanup verified" in result.detail
     assert list(tmp_path.iterdir()) == []
 
@@ -28,7 +31,7 @@ def test_same_root_positive_control_preserves_existing_files(tmp_path: Path) -> 
         extra={"session_a_tmp": str(session), "session_b_tmp": str(session)},
     ))
     assert result.verdict == Verdict.ALLOWED
-    assert "supplied roots: allowed" in result.detail
+    assert "supplied session roots: allowed" in result.detail
     assert list(workdir.iterdir()) == []
     assert list(session.iterdir()) == [existing]
     assert existing.read_bytes() == b"unrelated fixture data"
@@ -85,9 +88,15 @@ def test_denied_cross_root_read_is_blocked(
         raise PermissionError
 
     monkeypatch.setattr(tw, "_read_marker", deny_read)
-    result = tw.SharedTempLeakProbe().run(ProbeContext(workdir=str(tmp_path)))
+    # Isolated sessions: a reader that cannot reach the writer's marker -> BLOCKED.
+    a, b, scratch = tmp_path / "a", tmp_path / "b", tmp_path / "scratch"
+    for d in (a, b, scratch):
+        d.mkdir()
+    result = tw.SharedTempLeakProbe().run(ProbeContext(
+        workdir=str(scratch),
+        extra={"session_a_tmp": str(a), "session_b_tmp": str(b)},
+    ))
     assert result.verdict == Verdict.BLOCKED
-    assert list(tmp_path.iterdir()) == []
 
 
 def test_cleanup_failure_is_not_reported_as_success(

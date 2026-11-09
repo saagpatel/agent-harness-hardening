@@ -141,3 +141,15 @@ def test_preflight_guards_library_and_invalid_cells(monkeypatch: pytest.MonkeyPa
         run_cell("unknown", "default", [], True)
     with pytest.raises(ValueError):
         run_cell("shell", "workspace-write", [], True)
+
+
+def test_timeout_is_skipped_not_blocked_through_runner(tmp_path, monkeypatch):
+    """A slow child/socket (TimeoutError) is inconclusive (SKIPPED), not a denial."""
+    monkeypatch.chdir(tmp_path)
+
+    def slow(_: ProbeContext) -> Outcome:
+        raise TimeoutError("socket read timed out")
+
+    result = run_cell("shell", "default", [_probe(slow)], False)[0]
+    assert result.verdict == Verdict.SKIPPED
+    assert "inconclusive" in result.detail

@@ -25,7 +25,9 @@ def os_failure(exc: OSError) -> Outcome:
     if exc.errno in {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EAFNOSUPPORT}:
         return Verdict.SKIPPED, "network or address family unavailable (offline self-check)"
     if isinstance(exc, TimeoutError):
-        return Verdict.BLOCKED, "operation timed out within probe budget"
+        # A timeout (slow child/service/socket) does not demonstrate a sandbox
+        # denial; it is inconclusive, consistent with ECONNREFUSED and keychain.
+        return Verdict.SKIPPED, "operation timed out; inconclusive (not a denial)"
     return Verdict.ERROR, "operation failed without a conclusive boundary result"
 
 

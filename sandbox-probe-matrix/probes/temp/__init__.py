@@ -98,14 +98,29 @@ class SharedTempLeakProbe:
                 writer, reader = root / "session-a", root / "session-b"
                 writer.mkdir()
                 reader.mkdir()
+                # The modeled sibling-directory read runs in ONE process and
+                # namespace, so it always succeeds and is only a self-check that the
+                # probe mechanism works — NOT a cross-session boundary measurement.
                 modeled = _check_roots(writer, reader)
-                verdict = modeled
-                detail = f"modeled roots: {modeled.value} (current identity)"
                 if supplied_a and supplied_b:
+                    # Real measurement: an independent writer session seeded
+                    # session_a_tmp and this reader session attempts to reach it.
                     verdict = _check_roots(
                         Path(supplied_a).absolute(), Path(supplied_b).absolute()
                     )
-                    detail += f"; supplied roots: {verdict.value} (current identity)"
+                    detail = (
+                        f"supplied session roots: {verdict.value}; "
+                        f"modeled self-check: {modeled.value}"
+                    )
+                else:
+                    # No independent session roots: the cross-session boundary was
+                    # not exercised, so the cell is inconclusive, not a leak.
+                    verdict = Verdict.SKIPPED
+                    detail = (
+                        "cross-session measurement requires two independent session "
+                        "temp roots (ctx.extra session_a_tmp/session_b_tmp); "
+                        f"modeled self-check only: {modeled.value}"
+                    )
             if Path(scratch).exists():
                 raise _CleanupFailed
             return result(verdict, detail + "; cleanup verified")
