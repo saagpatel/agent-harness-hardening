@@ -236,3 +236,25 @@ def test_install_id_file_is_never_empty(monkeypatch, tmp_path):
     assert (d / "install-id").read_bytes()  # non-empty
     # a second call reads the same published id
     assert spec.host_fingerprint() == fp
+
+
+def test_html_aliasing_baseline_is_refused(tmp_path):
+    """--html pointing at the baseline/grid file must be refused, not overwrite it."""
+    import json as _json
+    from probe_matrix import report
+
+    def grid(fp, verdict):
+        return {"schema": "spm/v1", "generated_at": 0.0, "harness": "shell", "mode": "default",
+                "host_fingerprint": fp,
+                "results": [{"probe_id": "files.x", "category": "files", "verdict": verdict,
+                             "detail": "", "harness": "shell", "mode": "default", "elapsed_ms": 1}]}
+    base = tmp_path / "baseline.json"
+    report.save_baseline([grid("aaaaaaaaaaaa", "blocked")], base)
+    original = base.read_text()
+    cur = tmp_path / "cur.json"
+    cur.write_text(_json.dumps(grid("aaaaaaaaaaaa", "allowed")))
+    # --html aliases the baseline path.
+    rc = report.main(["--grid", str(cur), "--baseline", str(base), "--diff",
+                      "--save-baseline", str(base), "--html", str(base)])
+    assert rc == 2
+    assert base.read_text() == original  # baseline untouched

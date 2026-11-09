@@ -58,10 +58,12 @@ def test_reader_cannot_reach_isolated_marker_is_blocked(tmp_path: Path, monkeypa
 
     import errno as _errno
 
-    def deny(_path):  # a read DENIED by permission -> boundary held
+    real_open = temp_wing.os.open
+
+    def deny_open(path, flags, *a, **k):  # open DENIED by permission -> boundary held
         raise PermissionError(_errno.EACCES, "denied")
 
-    monkeypatch.setattr(Path, "read_bytes", lambda self: deny(self))
+    monkeypatch.setattr(temp_wing.os, "open", deny_open)
     result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
         "writer_marker": str(marker),
         "writer_sentinel": sentinel.hex(),
@@ -102,6 +104,52 @@ def test_missing_marker_is_inconclusive(tmp_path: Path) -> None:
     result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
         "writer_marker": str(reader_root / "nope"),
         "writer_sentinel": "00ff11ee22dd",
+        "reader_root": str(reader_root),
+    }))
+    assert result.verdict == Verdict.ERROR
+
+
+def test_symlink_marker_is_refused(tmp_path: Path) -> None:
+    # A symlink substituted at the marker path must not be followed.
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    sentinel = bytes.fromhex("1234567890ab")
+    real = tmp_path / "real"
+    real.write_bytes(sentinel)
+    link = reader_root / "marker"
+    link.symlink_to(real)
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(link),
+        "writer_sentinel": sentinel.hex(),
+        "reader_root": str(reader_root),
+    }))
+    assert result.verdict == Verdict.ERROR
+
+
+def test_non_regular_marker_is_refused(tmp_path: Path) -> None:
+    # A device (e.g. /dev/zero) is not a regular file: refused, never read.
+    import os as _os
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    if not _os.path.exists("/dev/zero"):
+        import pytest
+        pytest.skip("no /dev/zero")
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": "/dev/zero",
+        "writer_sentinel": "00",
+        "reader_root": str(reader_root),
+    }))
+    assert result.verdict == Verdict.ERROR
+
+
+def test_oversized_marker_is_refused(tmp_path: Path) -> None:
+    reader_root = tmp_path / "reader"
+    reader_root.mkdir()
+    marker = reader_root / "big"
+    marker.write_bytes(b"x" * (temp_wing._MAX_MARKER_BYTES + 1))
+    result = temp_wing.SharedTempLeakProbe().run(ProbeContext(extra={
+        "writer_marker": str(marker),
+        "writer_sentinel": "00",
         "reader_root": str(reader_root),
     }))
     assert result.verdict == Verdict.ERROR

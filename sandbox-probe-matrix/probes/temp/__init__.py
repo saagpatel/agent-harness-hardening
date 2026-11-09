@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import errno
 import os
+import stat
 from pathlib import Path
 
 from probe_matrix.spec import Category, ProbeContext, ProbeResult, Verdict, register
@@ -29,23 +30,50 @@ from probe_matrix.spec import Category, ProbeContext, ProbeResult, Verdict, regi
 
 # Only a permission/read-only denial demonstrates that the boundary held.
 _DENIED_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS}
+# A marker is a tiny sentinel; bound the read so a device/large file cannot exhaust
+# memory before the probe budget fires.
+_MAX_MARKER_BYTES = 4096
 
 
 def _read_only_reach(reader_root: Path, writer_marker: Path, sentinel: bytes) -> tuple[Verdict, str]:
     """Attempt, read-only, to reach the writer's marker from the reader's root.
 
-    * read + sentinel match        -> ALLOWED (cross-session leak demonstrated)
-    * read denied (EACCES/EPERM)   -> BLOCKED (isolation demonstrated)
-    * marker missing / I/O error   -> ERROR  (inconclusive: invalid handoff/env)
-    * read ok but sentinel mismatch-> ERROR  (inconclusive: unverified handoff)
+    The marker is validated before any bytes are read: it must be a REGULAR file
+    (not a symlink or device), OWNED by this session, and no larger than a small
+    bound. This keeps the handoff on this machine's own files and prevents a
+    foreign-owned file or a device like /dev/zero from being read.
+
+    * read + sentinel match          -> ALLOWED (cross-session leak demonstrated)
+    * open/read denied (EACCES/EPERM)-> BLOCKED (isolation demonstrated)
+    * not owned/regular, too large,
+      missing/io, or sentinel mismatch-> ERROR (inconclusive / refused handoff)
     """
     relative = os.path.relpath(writer_marker, reader_root)
+    target = reader_root / relative
     try:
-        data = (reader_root / relative).read_bytes()
+        # O_NOFOLLOW refuses a symlink substituted at the final path component.
+        fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except OSError as exc:
         if exc.errno in _DENIED_ERRNOS:
             return Verdict.BLOCKED, "reader denied access to the writer's marker"
+        if exc.errno in (errno.ELOOP, errno.EMLINK):
+            return Verdict.ERROR, "marker is a symlink; refusing (inconclusive)"
         return Verdict.ERROR, "marker unreachable (missing/io); inconclusive handoff"
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return Verdict.ERROR, "marker is not a regular file; refusing (inconclusive)"
+        if hasattr(os, "getuid") and st.st_uid != os.getuid():
+            return Verdict.ERROR, "marker not owned by this session; refusing (own files only)"
+        if st.st_size > _MAX_MARKER_BYTES:
+            return Verdict.ERROR, "marker larger than a sentinel; refusing (inconclusive)"
+        data = os.read(fd, len(sentinel) + 1)  # bounded; +1 detects an over-long value
+    except OSError as exc:
+        if exc.errno in _DENIED_ERRNOS:
+            return Verdict.BLOCKED, "reader denied reading the writer's marker"
+        return Verdict.ERROR, "marker read failed; inconclusive handoff"
+    finally:
+        os.close(fd)
     if data == sentinel:
         return Verdict.ALLOWED, "reader read the writer's marker"
     return Verdict.ERROR, "sentinel mismatch; handoff unverified (inconclusive)"

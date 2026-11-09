@@ -232,6 +232,23 @@ def _load_grids(paths: list[str]) -> list[Grid]:
     return grids
 
 
+def _aliases_any(target: str, others: list[str]) -> bool:
+    """True if `target` resolves to the same file as any of `others` (following
+    symlinks/hard links where the paths exist)."""
+    import os
+
+    def key(path: str):
+        real = os.path.realpath(path)
+        try:
+            st = os.stat(path)
+            return (st.st_dev, st.st_ino)  # same inode = same file (hard link/symlink)
+        except OSError:
+            return ("path", real)
+
+    tk = key(target)
+    return any(key(o) == tk for o in others)
+
+
 def main(argv: list[str] | None = None) -> int:
     """`spm report` entry point.
 
@@ -277,6 +294,15 @@ def main(argv: list[str] | None = None) -> int:
         # is left intact.
         print(f'report: {exc}', file=sys.stderr)
         return 2
+
+    # Refuse an HTML destination that aliases an input grid or either baseline path
+    # (directly or via an existing symlink/hard link): writing HTML there would
+    # destroy the saved comparison state.
+    if parsed.html:
+        protected = [p for p in ([parsed.baseline, parsed.save_baseline] + list(parsed.grid)) if p]
+        if _aliases_any(parsed.html, protected):
+            print('report: --html path aliases a grid or baseline file; refusing', file=sys.stderr)
+            return 2
 
     # Deliver ALL requested output — stdout and HTML — and flush it BEFORE replacing
     # the baseline. If any write fails, the command fails with the old baseline still
