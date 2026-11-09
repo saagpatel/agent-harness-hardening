@@ -28,7 +28,7 @@ def test_every_direct_probe_honors_dry_run(monkeypatch: pytest.MonkeyPatch) -> N
     "number, verdict",
     [
         (errno.EACCES, Verdict.BLOCKED),
-        (errno.ECONNREFUSED, Verdict.BLOCKED),
+        (errno.ECONNREFUSED, Verdict.SKIPPED),
         (errno.ENETUNREACH, Verdict.SKIPPED),
         (errno.EHOSTUNREACH, Verdict.SKIPPED),
     ],

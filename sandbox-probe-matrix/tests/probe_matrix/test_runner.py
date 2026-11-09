@@ -64,7 +64,7 @@ def test_real_run_closes_and_removes_scratch(
     "error, verdict",
     [
         (PermissionError(errno.EACCES, "private-value"), Verdict.BLOCKED),
-        (ConnectionRefusedError(errno.ECONNREFUSED, "private-value"), Verdict.BLOCKED),
+        (ConnectionRefusedError(errno.ECONNREFUSED, "private-value"), Verdict.SKIPPED),
         (FileNotFoundError(errno.ENOENT, "private-value"), Verdict.SKIPPED),
         (RuntimeError("private-value"), Verdict.ERROR),
     ],

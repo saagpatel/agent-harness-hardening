@@ -115,18 +115,37 @@ def test_shared_baseline_path_preserves_regression(tmp_path):
     assert any(c.classification in ("unchanged", "flipped_open") for c in diff.cells)
 
 
-def test_host_fingerprint_is_machine_specific(monkeypatch, tmp_path):
-    """Two machines sharing an OS tuple must get different fingerprints."""
-    import uuid
+def test_host_fingerprint_is_install_specific_and_upgrade_stable(monkeypatch):
+    """Different installs differ; the same install is stable across OS changes."""
+    import platform
     from probe_matrix import spec
 
-    monkeypatch.setenv("SPM_SALT_DIR", str(tmp_path))  # one stable salt for both calls
-    monkeypatch.setattr(uuid, "getnode", lambda: 0x111111111111)
+    monkeypatch.setenv("SPM_INSTALL_ID", "11111111111111111111111111111111")
     a = spec.host_fingerprint()
-    monkeypatch.setattr(uuid, "getnode", lambda: 0x222222222222)
+    monkeypatch.setenv("SPM_INSTALL_ID", "22222222222222222222222222222222")
     b = spec.host_fingerprint()
     assert a != b
     assert len(a) == 12 and len(b) == 12
+
+    # Same install id is stable even if the OS/kernel release changes (no OS input).
+    monkeypatch.setenv("SPM_INSTALL_ID", "33333333333333333333333333333333")
+    before = spec.host_fingerprint()
+    monkeypatch.setattr(platform, "release", lambda: "99.99.99-upgraded")
+    after = spec.host_fingerprint()
+    assert before == after
+
+
+def test_host_fingerprint_fails_loudly_when_no_private_id(monkeypatch, tmp_path):
+    """A read-only id location with no provided id must raise, not emit a weak id."""
+    import pytest
+    from probe_matrix import spec
+
+    monkeypatch.delenv("SPM_INSTALL_ID", raising=False)
+    denied = tmp_path / "denied"
+    denied.write_text("not a dir")  # mkdir under a file path raises
+    monkeypatch.setenv("SPM_SALT_DIR", str(denied / "sub"))
+    with pytest.raises(spec.HostIdentityUnavailable):
+        spec.host_fingerprint()
 
 
 def test_cross_host_baseline_comparison_is_refused():
@@ -143,3 +162,26 @@ def test_cross_host_baseline_comparison_is_refused():
     base = [grid("bbbbbbbbbbbb", "blocked")]  # different machine
     with pytest.raises(ValueError, match="cross-host"):
         report.diff_against_baseline(cur, base)
+
+
+def test_baseline_preserved_when_comparison_fails(tmp_path):
+    """--baseline X --save-baseline X with a cross-host mismatch must NOT destroy X."""
+    import json as _json
+    from probe_matrix import report
+
+    def grid(fp, verdict):
+        return {"schema": "spm/v1", "generated_at": 0.0, "harness": "shell", "mode": "default",
+                "host_fingerprint": fp,
+                "results": [{"probe_id": "files.x", "category": "files", "verdict": verdict,
+                             "detail": "", "harness": "shell", "mode": "default", "elapsed_ms": 1}]}
+    base_path = tmp_path / "baseline.json"
+    report.save_baseline([grid("aaaaaaaaaaaa", "blocked")], base_path)  # machine A
+    original = base_path.read_text()
+    cur = tmp_path / "cur.json"
+    cur.write_text(_json.dumps(grid("bbbbbbbbbbbb", "allowed")))  # machine B (mismatch)
+
+    rc = report.main(["--grid", str(cur), "--baseline", str(base_path),
+                      "--diff", "--save-baseline", str(base_path)])
+    assert rc != 0  # cross-host comparison raised
+    # The original baseline survived untouched.
+    assert base_path.read_text() == original

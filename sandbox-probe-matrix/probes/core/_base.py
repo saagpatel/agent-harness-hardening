@@ -16,8 +16,12 @@ Outcome = tuple[Verdict, str]
 def os_failure(exc: OSError) -> Outcome:
     if isinstance(exc, FileNotFoundError):
         return Verdict.SKIPPED, "resource absent"
-    if exc.errno in {errno.EACCES, errno.EPERM, errno.EROFS, errno.ECONNREFUSED}:
-        return Verdict.BLOCKED, "operation denied or connection refused"
+    if exc.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+        return Verdict.BLOCKED, "operation denied (permission)"
+    if exc.errno == errno.ECONNREFUSED:
+        # Refusal means no listener OR a sandbox block; without an independent
+        # control we cannot tell, so this is inconclusive, not a demonstrated deny.
+        return Verdict.SKIPPED, "connection refused (no listener or blocked; inconclusive)"
     if exc.errno in {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EAFNOSUPPORT}:
         return Verdict.SKIPPED, "network or address family unavailable (offline self-check)"
     if isinstance(exc, TimeoutError):

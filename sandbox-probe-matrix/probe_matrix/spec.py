@@ -133,52 +133,70 @@ def clear_registry() -> None:
 
 # ---- helpers ------------------------------------------------------------------
 
-def _install_salt() -> bytes:
-    """A stable, per-install random secret, kept OUT of reports and the repo.
+class HostIdentityUnavailable(RuntimeError):
+    """No private per-install identity could be read, created, or provided."""
 
-    Folding this into the digest means a committed baseline fingerprint cannot be
-    brute-forced back to the machine's hardware id (the salt is unknown to anyone
-    reading the baseline). `SPM_SALT_DIR` overrides the location (used by tests).
-    If no salt file can be persisted, the function degrades to no salt rather than
-    failing — still non-reversible, just not brute-force-resistant.
+
+def _install_id() -> bytes:
+    """A stable, private, random per-install identity, kept OUT of reports/repo.
+
+    The committed baseline fingerprint is a hash of this id, unknown to anyone
+    reading the baseline. The id is random — NOT derived from any hardware or OS
+    value — so it:
+      * survives OS/kernel upgrades (the same install keeps the same identity);
+      * distinguishes two installs even on identical hardware/OS; and
+      * has no brute-force surface (there is no hardware input to recover).
+    `SPM_INSTALL_ID` (hex) supplies it directly; `SPM_SALT_DIR` overrides the
+    persistence directory (both used by tests and read-only sandboxes). If no id
+    can be read, created, or provided, this raises HostIdentityUnavailable rather
+    than silently emitting a weak fingerprint.
     """
     import os
     import pathlib
 
+    provided = os.environ.get("SPM_INSTALL_ID")
+    if provided:
+        try:
+            return bytes.fromhex(provided)
+        except ValueError as exc:
+            raise HostIdentityUnavailable("SPM_INSTALL_ID is not valid hex") from exc
+
     base = os.environ.get("SPM_SALT_DIR") or os.path.join(
         os.path.expanduser("~"), ".cache", "sandbox-probe-matrix"
     )
-    path = pathlib.Path(base) / "fingerprint-salt"
+    path = pathlib.Path(base) / "install-id"
     try:
         if path.exists():
-            return path.read_bytes()
+            data = path.read_bytes()
+            if data:
+                return data
         path.parent.mkdir(parents=True, exist_ok=True)
-        salt = __import__("secrets").token_bytes(16)
-        path.write_bytes(salt)
+        import secrets
+
+        ident = secrets.token_bytes(16)
+        path.write_bytes(ident)
         try:
             path.chmod(0o600)
         except OSError:
             pass
-        return salt
-    except OSError:
-        return b""
+        return ident
+    except OSError as exc:
+        raise HostIdentityUnavailable(
+            "no private install id available: set SPM_SALT_DIR to a writable "
+            "private directory or SPM_INSTALL_ID to a hex id"
+        ) from exc
 
 
 def host_fingerprint() -> str:
-    """A salted, truncated, non-reversible id for the machine a run came from.
+    """A truncated, non-reversible id for the install a run came from.
 
-    Includes a machine-specific component (the stable hardware node id) so two
-    different machines on the same OS/arch get *different* fingerprints — the whole
-    point is telling one machine's baseline from another's. A stable per-install
-    secret salt (see `_install_salt`) is mixed in so the committed 12-hex digest
-    cannot be reversed or brute-forced back to the hardware id. The raw inputs are
-    never emitted; only the digest is. Safe to commit.
+    It is the hash of a stable, private, random per-install id (see `_install_id`),
+    not of any hardware or OS value — so an OS upgrade keeps the identity stable,
+    two installs on the same machine differ, and the committed 12-hex digest cannot
+    be reversed to anything about the host. Raises HostIdentityUnavailable when no
+    private id can be obtained, rather than emitting a weak fingerprint.
     """
-    import platform
-    import uuid
-
-    raw = f"{platform.system()}|{platform.machine()}|{platform.release()}|{uuid.getnode():x}"
-    return hashlib.sha256(_install_salt() + b"|" + raw.encode()).hexdigest()[:12]
+    return hashlib.sha256(_install_id()).hexdigest()[:12]
 
 
 def now_ms() -> int:

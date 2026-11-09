@@ -13,7 +13,9 @@ from typing import cast
 
 from probe_matrix.runner import available_harnesses, modes_for, run_cell
 from probe_matrix.safety import UnsafeEnvironment, assert_safe_environment
-from probe_matrix.spec import SCHEMA, all_probes, get_probe, host_fingerprint
+from probe_matrix.spec import (
+    SCHEMA, HostIdentityUnavailable, all_probes, get_probe, host_fingerprint,
+)
 
 
 def _report(argv: list[str]) -> int:
@@ -84,6 +86,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             parsed.out.write_text(payload, encoding="utf-8")
         else:
             sys.stdout.write(payload)
+    except HostIdentityUnavailable as exc:
+        print(f"run failed: {exc}", file=sys.stderr)
+        return 2
     except UnsafeEnvironment as exc:
         print(f"safety preflight: {exc}", file=sys.stderr)
         return 2

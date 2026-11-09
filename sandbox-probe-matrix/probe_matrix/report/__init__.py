@@ -89,6 +89,28 @@ def save_baseline(grids: list[Grid], path: str | Path) -> None:
     Path(path).write_text(json.dumps(_clean(grids), indent=2, allow_nan=False) + '\n', encoding='utf-8')
 
 
+def _atomic_save_baseline(grids: list[Grid], path: str | Path) -> None:
+    """Validate and render first, then replace the target in one atomic rename so a
+    failure or crash cannot destroy the previous baseline."""
+    import os
+    import tempfile
+
+    target = Path(path)
+    payload = json.dumps(_clean(grids), indent=2, allow_nan=False) + '\n'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix='.spm-baseline-', dir=str(target.parent))
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            stream.write(payload)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def load_baseline(path: str | Path) -> list[Grid]:
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     if not isinstance(data, list):
@@ -232,9 +254,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         grids = _load_grids(['/dev/stdin'])
 
-    # Load the comparison baseline BEFORE saving, so --baseline and --save-baseline
-    # may name the same file without the new run clobbering the old one first
-    # (which would hide a blocked->allowed regression).
+    # Compute EVERYTHING (comparison + rendered output) before writing any
+    # baseline, so --baseline and --save-baseline may name the same file: a
+    # cross-host or load failure raises here, leaving the existing baseline intact.
     previous = None
     if parsed.diff or parsed.baseline:
         if not parsed.baseline:
@@ -242,16 +264,26 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         previous = load_baseline(parsed.baseline)
 
-    if parsed.save_baseline:
-        save_baseline(grids, parsed.save_baseline)
+    try:
+        if previous is not None:
+            diff = diff_against_baseline(grids, previous)  # may raise (cross-host)
+            terminal_out = render_diff_terminal(diff)
+            html_out = render_diff_html(diff) if parsed.html else None
+        else:
+            terminal_out = render_terminal(grids)
+            html_out = render_html(grids) if parsed.html else None
+    except ValueError as exc:
+        # Comparison failed before any baseline was written: the existing baseline
+        # is left intact.
+        print(f'report: {exc}', file=sys.stderr)
+        return 2
 
-    if previous is not None:
-        diff = diff_against_baseline(grids, previous)
-        sys.stdout.write(render_diff_terminal(diff) + '\n')
-        if parsed.html:
-            Path(parsed.html).write_text(render_diff_html(diff), encoding='utf-8')
-    else:
-        sys.stdout.write(render_terminal(grids) + '\n')
-        if parsed.html:
-            Path(parsed.html).write_text(render_html(grids), encoding='utf-8')
+    # Only now, after a successful comparison/render, persist the new baseline —
+    # atomically, so a crash mid-write cannot corrupt or lose the old one.
+    if parsed.save_baseline:
+        _atomic_save_baseline(grids, parsed.save_baseline)
+
+    sys.stdout.write(terminal_out + '\n')
+    if html_out is not None and parsed.html:
+        Path(parsed.html).write_text(html_out, encoding='utf-8')
     return 0
