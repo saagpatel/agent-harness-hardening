@@ -28,15 +28,18 @@ PATCHED_VALIDATE="$STAGING_DIR/harness-config-validate.sh"
 LIVE_DENY="$HOME/.claude/hooks/lib/deny.sh"
 PATCHED_DENY="$STAGING_DIR/deny.sh"
 
-LIVE_SETTINGS="$HOME/.claude/settings.json"
-
-# Verify files exist before proceeding.
-for f in "$LIVE_VALIDATE" "$PATCHED_VALIDATE" "$LIVE_DENY" "$PATCHED_DENY" "$LIVE_SETTINGS"; do
+# The LIVE_* files are optional. They exist only on a machine that already has
+# the harness installed in ~/.claude; the red (before-patch) checks need them.
+# On a clean clone they are absent, and those red checks are skipped.
+# The patched files from this repo are always required.
+for f in "$PATCHED_VALIDATE" "$PATCHED_DENY"; do
   if [ ! -f "$f" ]; then
     echo "FATAL: required file not found: $f"
     exit 1
   fi
 done
+HAVE_LIVE_VALIDATE=false; [ -f "$LIVE_VALIDATE" ] && HAVE_LIVE_VALIDATE=true
+HAVE_LIVE_DENY=false; [ -f "$LIVE_DENY" ] && HAVE_LIVE_DENY=true
 
 PASS=0
 FAIL=0
@@ -170,10 +173,16 @@ cp "$FAKE_CLAUDE/settings.local.json" \
 # ── R3-M Red: LIVE validator should PASS the attack (vulnerability) ─────────
 echo ""
 echo "  [RED] LIVE validator on attack payload (expect: PASS, i.e. NOT blocked)..."
-RED_OUT=$(run_validator "$LIVE_VALIDATE" "$FAKE_CLAUDE/settings.local.json" "$FAKE_HOME_R3M")
-echo "  LIVE output: $(echo "$RED_OUT" | head -3 || echo "(empty)")"
+RED_OUT=""
+if [ "$HAVE_LIVE_VALIDATE" = true ]; then
+  RED_OUT=$(run_validator "$LIVE_VALIDATE" "$FAKE_CLAUDE/settings.local.json" "$FAKE_HOME_R3M")
+  echo "  LIVE output: $(echo "$RED_OUT" | head -3 || echo "(empty)")"
+fi
 
-if is_rollback "$RED_OUT"; then
+if [ "$HAVE_LIVE_VALIDATE" != true ]; then
+  PASS=$((PASS + 1))
+  echo "  SKIP/PASS: R3-M red, no live validator installed in ~/.claude (clean clone)"
+elif is_rollback "$RED_OUT"; then
   # Validator caught the attack — this means the live version was already patched
   # or exhibits different behavior. Note it, but don't fail the test.
   echo "  NOTE: LIVE validator DID block the attack — possibly already patched."
@@ -300,15 +309,21 @@ chmod +x "$DENY_CALLER"
 
 echo ""
 echo "  [RED] LIVE deny.sh with poisoned PATH (expect: empty output / fail-open)..."
-LIVE_DENY_OUT=$(PATH="$DECOY_BIN:$PATH" DENY_LIB="$LIVE_DENY" bash "$DENY_CALLER" 2>/dev/null || true)
-echo "  LIVE output: '${LIVE_DENY_OUT}'"
+LIVE_DENY_OUT=""
+if [ "$HAVE_LIVE_DENY" = true ]; then
+  LIVE_DENY_OUT=$(PATH="$DECOY_BIN:$PATH" DENY_LIB="$LIVE_DENY" bash "$DENY_CALLER" 2>/dev/null || true)
+  echo "  LIVE output: '${LIVE_DENY_OUT}'"
+fi
 
 LIVE_HAS_DENY=false
 if echo "$LIVE_DENY_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
   LIVE_HAS_DENY=true
 fi
 
-if [ "$LIVE_HAS_DENY" = true ]; then
+if [ "$HAVE_LIVE_DENY" != true ]; then
+  PASS=$((PASS + 1))
+  echo "  SKIP/PASS: Class-13 red, no live deny.sh installed in ~/.claude (clean clone)"
+elif [ "$LIVE_HAS_DENY" = true ]; then
   echo "  NOTE: LIVE deny.sh emits deny JSON even with fake jq — possibly already hardened."
   echo "  (Red test skipped — SKIP/PASS)"
   PASS=$((PASS + 1))
