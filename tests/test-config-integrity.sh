@@ -181,7 +181,7 @@ fi
 
 if [ "$HAVE_LIVE_VALIDATE" != true ]; then
   PASS=$((PASS + 1))
-  echo "  SKIP/PASS: R3-M red — no live validator installed in ~/.claude (clean clone)"
+  echo "  SKIP/PASS: R3-M red, no live validator installed in ~/.claude (clean clone)"
 elif is_rollback "$RED_OUT"; then
   # Validator caught the attack — this means the live version was already patched
   # or exhibits different behavior. Note it, but don't fail the test.
@@ -322,7 +322,7 @@ fi
 
 if [ "$HAVE_LIVE_DENY" != true ]; then
   PASS=$((PASS + 1))
-  echo "  SKIP/PASS: Class-13 red — no live deny.sh installed in ~/.claude (clean clone)"
+  echo "  SKIP/PASS: Class-13 red, no live deny.sh installed in ~/.claude (clean clone)"
 elif [ "$LIVE_HAS_DENY" = true ]; then
   echo "  NOTE: LIVE deny.sh emits deny JSON even with fake jq — possibly already hardened."
   echo "  (Red test skipped — SKIP/PASS)"
