@@ -3,6 +3,31 @@
 Blue-team patches for the config-integrity layer. No live files are modified;
 operator installs by copying and reviewing each file.
 
+## Quick start: verify from a clean clone
+
+Nothing here needs installing to run the regression test. It reads only files
+in this repository and writes only to a temporary directory it removes on exit.
+
+Prerequisites: macOS or Linux, `bash`, `jq`, `python3`, `git`. No build step,
+no network, no credentials.
+
+```bash
+git clone -b publish https://github.com/saagpatel/agent-harness-hardening.git
+cd agent-harness-hardening
+bash tests/test-config-integrity.sh
+```
+
+Expected: `6/6 tests passed`. On a machine with no existing harness under
+`~/.claude`, the two "red" checks (which demonstrate the bug on an already
+installed, unpatched copy) are reported as `SKIP/PASS`; the "green" checks that
+run the patched files from this repo always run.
+
+The other scripts and fixtures under `tests/` (for example `run-tests.sh`-style
+runners and the `r*-*.json` attack payloads) belong to the operator's live
+hook set. They point at `~/.claude` and `~/.codex` and are review artifacts, not
+a runnable suite; see `PUBLISH-NOTES.md`. The `sandbox-probe-matrix/` directory
+is a separate Python project with its own README.
+
 ## Files
 
 | Staged file | Installs to | Findings addressed |
@@ -12,10 +37,16 @@ operator installs by copying and reviewing each file.
 | `settings-deny-additions.md` | operator-applied jq snippet | R5-a, R5-b |
 | `tests/test-config-integrity.sh` | `~/.claude/hooks/tests/` | test harness |
 
-## Install steps
+The repo also holds further guard hooks, installers and fixtures (see
+`PUBLISH-NOTES.md`); the table lists only the files this staging set patches.
+
+## Install steps (operator only, onto a machine that already has the harness in `~/.claude`)
+
+These steps modify `~/.claude` and are not needed to run the quick start above.
+Run them from the root of your clone.
 
 ```bash
-STAGING=~/Projects/fable-outputs/staging/tournament-11
+STAGING="$(pwd)"
 
 # 1. Diff each file before copying.
 diff ~/.claude/hooks/harness-config-validate.sh $STAGING/harness-config-validate.sh
@@ -35,7 +66,8 @@ chmod +x ~/.claude/hooks/tests/test-config-integrity.sh
 
 # 4. Apply settings.json deny additions — see settings-deny-additions.md.
 
-# 5. Run regression tests.
+# 5. Run regression tests (run-tests.sh is the operator's own runner in
+#    ~/.claude and is not part of this repo).
 bash ~/.claude/hooks/tests/run-tests.sh
 bash ~/.claude/hooks/tests/test-config-integrity.sh
 ```
