@@ -9,10 +9,10 @@ Run the regression test directly from the clone. It creates fixtures under
 `/tmp` and removes them on exit. If live hooks exist under `~/.claude`,
 the test also runs them for comparison.
 
-Prerequisites: macOS or Linux with `bash`, `jq` and a writable `/tmp`. The
-Class-13 check needs jq in one of the locations listed below or a trusted
-absolute path in `JQ`. Cloning needs Git and network access. The regression
-test runs offline without a build step or credentials.
+Prerequisites: macOS or Linux with `bash`, jq 1.7 or newer on `PATH`, and a
+writable `/tmp`. The Class-13 check needs jq in one of the locations listed
+below or a trusted absolute path in `JQ`. Cloning needs Git and network
+access. The regression test runs offline without a build step or credentials.
 
 ```bash
 git clone -b publish https://github.com/saagpatel/agent-harness-hardening.git
@@ -63,7 +63,9 @@ cp deny.sh ~/.claude/hooks/lib/deny.sh
 
 # 4. Apply settings.json deny additions — see settings-deny-additions.md.
 
-# 5. Run the staged regression test from the clone.
+# 5. Run the staged regression test only if both installed hooks match.
+cmp harness-config-validate.sh ~/.claude/hooks/harness-config-validate.sh &&
+cmp deny.sh ~/.claude/hooks/lib/deny.sh &&
 bash tests/test-config-integrity.sh
 ```
 
@@ -97,8 +99,11 @@ See bottom of this document.
 ## Residual limits
 
 1. **Snapshot race window.** The installed harness supplies the PreToolUse
-   snapshot hook. On a failed PostToolUse check, the staged validator restores
-   the latest available backup for that filename, which may predate the write.
+   snapshot hook. On a failed PostToolUse check, the staged validator attempts
+   to restore the latest backup for that filename, which may predate the write.
+   Compare the written file with the backup named in the validator log before
+   relying on the rollback message. The validator reports a restore even if
+   the copy fails.
    If no backup exists, it logs the failure, attempts a macOS notification and
    emits a block decision. The written file still needs repair. Direct writes
    outside the hook lifecycle do not trigger validation.
@@ -115,8 +120,9 @@ See bottom of this document.
    when the selected executable is missing or no executable was found.
 
 4. **R2-F hook checks.** The validator requires at least eight nested
-   PreToolUse hook entries and a timeout of at least five seconds on each.
-   It does not check the hook script names.
+   PreToolUse hook entries. It rejects missing timeouts and numeric timeouts
+   below five seconds. It does not enforce a numeric type or check hook
+   script names.
 
 5. **Settings deny additions.** For the manual install above, apply the four
    entries in `settings-deny-additions.md`. The separate
