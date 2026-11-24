@@ -1,15 +1,18 @@
 # Tournament-11 Harness Hardening — Staging
 
-Blue-team patches for the config-integrity layer. No live files are modified;
-operator installs by copying and reviewing each file.
+Blue-team patches for the config-integrity layer. Installing the staged hooks
+is an operator step.
 
 ## Quick start: verify from a clean clone
 
-Nothing here needs installing to run the regression test. It reads only files
-in this repository and writes only to a temporary directory it removes on exit.
+Run the regression test directly from the clone. It creates fixtures under
+`/tmp` and removes them on exit. If live hooks exist under `~/.claude`,
+the test also runs them for comparison.
 
-Prerequisites: macOS or Linux, `bash`, `jq`, `python3`, `git`. No build step,
-no network, no credentials.
+Prerequisites: macOS or Linux with `bash`, jq 1.7 or newer on `PATH`, and a
+writable `/tmp`. The Class-13 check needs jq in one of the locations listed
+below or a trusted absolute path in `JQ`. Cloning needs Git and network
+access. The regression test runs offline without a build step or credentials.
 
 ```bash
 git clone -b publish https://github.com/saagpatel/agent-harness-hardening.git
@@ -17,16 +20,14 @@ cd agent-harness-hardening
 bash tests/test-config-integrity.sh
 ```
 
-Expected: `6/6 tests passed`. On a machine with no existing harness under
-`~/.claude`, the two "red" checks (which demonstrate the bug on an already
-installed, unpatched copy) are reported as `SKIP/PASS`; the "green" checks that
-run the patched files from this repo always run.
+Expected: `6/6 tests passed`. Each "red" check reports `SKIP/PASS` if its
+live hook is absent and counts toward the total. The four checks against the
+staged files still run.
 
-The other scripts and fixtures under `tests/` (for example `run-tests.sh`-style
-runners and the `r*-*.json` attack payloads) belong to the operator's live
-hook set. They point at `~/.claude` and `~/.codex` and are review artifacts, not
-a runnable suite; see `PUBLISH-NOTES.md`. The `sandbox-probe-matrix/` directory
-is a separate Python project with its own README.
+Other scripts and fixtures under `tests/`, including `test-mcp-gate.sh` and
+the `r*-*.json` payloads, document the operator's hook set. Several runners
+expect live hooks or operator-specific paths. See [PUBLISH-NOTES.md](PUBLISH-NOTES.md).
+The [sandbox probe matrix](sandbox-probe-matrix/README.md) is a separate Python project.
 
 ## Files
 
@@ -35,10 +36,10 @@ is a separate Python project with its own README.
 | `harness-config-validate.sh` | `~/.claude/hooks/harness-config-validate.sh` | R3-M, R2-F |
 | `deny.sh` | `~/.claude/hooks/lib/deny.sh` | Class-13 |
 | `settings-deny-additions.md` | operator-applied jq snippet | R5-a, R5-b |
-| `tests/test-config-integrity.sh` | `~/.claude/hooks/tests/` | test harness |
+| `tests/test-config-integrity.sh` | run from the clone | test harness |
 
 The repo also holds further guard hooks, installers and fixtures (see
-`PUBLISH-NOTES.md`); the table lists only the files this staging set patches.
+`PUBLISH-NOTES.md`); the table covers the config-integrity changes.
 
 ## Install steps (operator only, onto a machine that already has the harness in `~/.claude`)
 
@@ -46,11 +47,9 @@ These steps modify `~/.claude` and are not needed to run the quick start above.
 Run them from the root of your clone.
 
 ```bash
-STAGING="$(pwd)"
-
 # 1. Diff each file before copying.
-diff ~/.claude/hooks/harness-config-validate.sh $STAGING/harness-config-validate.sh
-diff ~/.claude/hooks/lib/deny.sh $STAGING/deny.sh
+diff ~/.claude/hooks/harness-config-validate.sh harness-config-validate.sh
+diff ~/.claude/hooks/lib/deny.sh deny.sh
 
 # 2. Backup live files.
 cp ~/.claude/hooks/harness-config-validate.sh \
@@ -58,38 +57,38 @@ cp ~/.claude/hooks/harness-config-validate.sh \
 cp ~/.claude/hooks/lib/deny.sh \
    ~/.claude/hooks/lib/deny.sh.pre-t11-$(date +%Y%m%d-%H%M%S).bak
 
-# 3. Install (operator-run, not agent-run — protect-claude-writes.sh blocks agent writes to ~/.claude).
-cp $STAGING/harness-config-validate.sh ~/.claude/hooks/harness-config-validate.sh
-cp $STAGING/deny.sh ~/.claude/hooks/lib/deny.sh
-cp $STAGING/tests/test-config-integrity.sh ~/.claude/hooks/tests/test-config-integrity.sh
-chmod +x ~/.claude/hooks/tests/test-config-integrity.sh
+# 3. Install the two reviewed hooks.
+cp harness-config-validate.sh ~/.claude/hooks/harness-config-validate.sh
+cp deny.sh ~/.claude/hooks/lib/deny.sh
 
 # 4. Apply settings.json deny additions — see settings-deny-additions.md.
 
-# 5. Run regression tests (run-tests.sh is the operator's own runner in
-#    ~/.claude and is not part of this repo).
-bash ~/.claude/hooks/tests/run-tests.sh
-bash ~/.claude/hooks/tests/test-config-integrity.sh
+# 5. Run the staged regression test only if both installed hooks match.
+cmp harness-config-validate.sh ~/.claude/hooks/harness-config-validate.sh &&
+cmp deny.sh ~/.claude/hooks/lib/deny.sh &&
+bash tests/test-config-integrity.sh
 ```
+
+If your harness supplies its own `~/.claude/hooks/tests/run-tests.sh`,
+use that runner for its installed-hook checks as well.
 
 ## Test results (tournament-11 baseline)
 
-```
-6/6 tests passed
+Selected output with no live hooks installed:
 
-  SKIP/PASS: R3-M red — LIVE validator already blocks (no vulnerability to demonstrate)
-  PASS: R3-M green — PATCHED validator BLOCKS merge-asymmetry attack
+```
+  SKIP/PASS: R3-M red, no live validator installed in ~/.claude (clean clone)
+  PASS: R3-M green — PATCHED validator BLOCKS merge-asymmetry attack (deny-shrink or required-rule check triggered)
   PASS: R3-M regression — clean config passes without false-positive rollback
   PASS: R2-F green — PATCHED validator blocks CODEX_EGRESS_POLICY injection
-  PASS: Class-13 red — LIVE deny.sh emits NOTHING with poisoned PATH (fail-open vulnerability confirmed)
+  SKIP/PASS: Class-13 red, no live deny.sh installed in ~/.claude (clean clone)
   PASS: Class-13 green — PATCHED deny.sh still emits valid deny JSON with poisoned PATH (hardened)
+6/6 tests passed
 ```
 
-Note on R3-M red: the live validator happened to block the basic attack via the
-`hard_deny` count check (the attack payload also emptied `hard_deny`). The
-patched validator adds defence-in-depth: it explicitly runs all sentinel and
-count checks against a naive-merged config, so a crafted attack that preserves
-counts but erases credential-deny rules is also blocked.
+The R3-M fixture empties `hard_deny` as well as `permissions.deny`. When
+both settings files exist, the patched validator checks the deny counts and
+required rules under both array-union and array-replacement merge semantics.
 
 ## Residual limits
 
@@ -99,35 +98,34 @@ See bottom of this document.
 
 ## Residual limits
 
-1. **Snapshot race window.** `harness-config-snapshot.sh` (PreToolUse) runs
-   before the write; `harness-config-validate.sh` (PostToolUse) runs after.
-   A write that bypasses the PreToolUse hook (e.g., direct filesystem write
-   outside Claude Code) has no snapshot to roll back from, so the validator
-   logs the failure and blocks but cannot restore. Mitigation: the validator
-   still emits a block decision and a macOS notification — silent corruption
-   is prevented.
+1. **Snapshot race window.** The installed harness supplies the PreToolUse
+   snapshot hook. On a failed PostToolUse check, the staged validator attempts
+   to restore the latest backup for that filename, which may predate the write.
+   Compare the written file with the backup named in the validator log before
+   relying on the rollback message. The validator reports a restore even if
+   the copy fails.
+   If no backup exists, it logs the failure, attempts a macOS notification and
+   emits a block decision. The written file still needs repair. Direct writes
+   outside the hook lifecycle do not trigger validation.
 
-2. **mktemp namespace collision.** Multiple concurrent validator invocations
-   sharing `/tmp` could create identically-named temp files. Mitigated in this
-   patch by using bare `mktemp /tmp/prefix.XXXXXX` (no `.json` suffix) so the
-   OS randomises the name correctly. A further hardening would use `mktemp -d`
-   + a fixed name inside it, but that is not done here.
+2. **Temporary files.** The validator uses `mktemp /tmp/prefix.XXXXXX` to
+   allocate a distinct file for each merge. These files require a writable
+   `/tmp`.
 
 3. **deny.sh PATH hardcoding.** The known-safe jq locations are: `/opt/homebrew/bin/jq`,
    `/usr/local/bin/jq`, `/usr/bin/jq`, `/bin/jq`, `/opt/local/bin/jq`,
-   `/nix/var/nix/profiles/default/bin/jq`. If jq is installed elsewhere (e.g.
-   a custom prefix), the script falls back to `command -v jq` as a last resort
-   — which is PATH-searchable. Add the non-standard path to the hardcoded list
-   if needed. The printf fallback catches the absolute worst case.
+   `/nix/var/nix/profiles/default/bin/jq`. An executable absolute path
+   supplied in `JQ` takes precedence. If none is available, the script checks
+   `command -v jq` for an executable absolute path. It uses `printf` only
+   when the selected executable is missing or no executable was found.
 
-4. **R2-F hooks check is count-only.** We verify PreToolUse hook count >= 8
-   and timeout >= 5, but do not verify the specific hook script names. An
-   attacker could replace the 8 hooks with 8 no-op scripts and pass the count
-   check. A per-hook script-name allowlist would close this, but is complex to
-   maintain without a centralized hook registry — deferred.
+4. **R2-F hook checks.** The validator requires at least eight nested
+   PreToolUse hook entries. It rejects missing timeouts and numeric timeouts
+   below five seconds. It does not enforce a numeric type or check hook
+   script names.
 
-5. **settings.json deny-additions are not automatically installed.** The
-   `settings-deny-additions.md` snippet must be applied by the operator. The
-   validator's `PERM_DENY_MIN=20` floor does not auto-update after the
-   additions; bump it to 42 in the patched validator before installing if you
-   apply all four new deny entries.
+5. **Settings deny additions.** For the manual install above, apply the four
+   entries in `settings-deny-additions.md`. The separate
+   `apply-tournament-11.sh` installer includes them in its apply step.
+   The validator keeps its `PERM_DENY_MIN=20` floor regardless of the
+   resulting number of unique deny entries.
